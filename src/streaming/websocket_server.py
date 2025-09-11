@@ -12,8 +12,8 @@ import time
 from typing import Set, Dict, Any
 import traceback
 
-from src.models.voxtral_model import voxtral_model
-from src.models.audio_processor import AudioProcessor
+from src.models.voxtral_model_realtime import voxtral_model
+from src.models.audio_processor_realtime import AudioProcessor
 from src.utils.config import config
 from src.utils.logging_config import logger
 

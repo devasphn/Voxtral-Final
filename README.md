@@ -71,13 +71,13 @@ chmod +x setup.sh run.sh
 ./setup.sh
 
 # Start all services
-./run.sh
+./run_realtime.sh
 ```
 
 ### Step 4: Access Services
 - **Web UI**: `https://[POD_ID]-8000.proxy.runpod.net`
 - **Health Check**: `https://[POD_ID]-8005.proxy.runpod.net/health`
-- **WebSocket**: `ws://[POD_ID]-8765.proxy.runpod.net`
+- **WebSocket**: `wss://[POD_ID]-8000.proxy.runpod.net/ws`
 - **TCP**: Direct connection to RunPod public IP on assigned port
 
 ## 🎯 Usage

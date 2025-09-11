@@ -17,7 +17,7 @@ class VoxtralStreamingClient:
     
     def __init__(self, host: str = "localhost"):
         self.host = host
-        self.websocket_port = 8765
+        self.websocket_port = 8000  # UI server WebSocket endpoint
         self.tcp_port = 8766
         
     def generate_test_audio(self, duration: float = 2.0, sample_rate: int = 16000) -> np.ndarray:
@@ -36,7 +36,7 @@ class VoxtralStreamingClient:
             audio_data = self.generate_test_audio()
         
         try:
-            uri = f"ws://{self.host}:{self.websocket_port}"
+            uri = f"ws://{self.host}:{self.websocket_port}/ws"  # Use UI server WebSocket endpoint
             async with websockets.connect(uri) as websocket:
                 print("Connected to WebSocket server")
                 
@@ -47,10 +47,11 @@ class VoxtralStreamingClient:
                 # Send test audio
                 audio_b64 = base64.b64encode(audio_data.tobytes()).decode('utf-8')
                 message = {
-                    "type": "audio",
+                    "type": "audio_chunk",  # Use new message type
                     "audio_data": audio_b64,
-                    "mode": "transcribe",
-                    "prompt": "Transcribe this test audio"
+                    "mode": "conversation",
+                    "chunk_id": 1,
+                    "timestamp": time.time()
                 }
                 
                 print("Sending audio data...")

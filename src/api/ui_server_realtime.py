@@ -974,7 +974,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 
                 streaming_logger.debug(f"[CONVERSATION] Received message type: {msg_type} from {client_id}")
                 
-                if msg_type == "audio_chunk":
+                if msg_type == "audio_chunk" or msg_type == "audio":  # Support legacy "audio" type
                     await handle_conversational_audio_chunk(websocket, message, client_id)
                     
                 elif msg_type == "ping":
@@ -1011,6 +1011,15 @@ async def handle_conversational_audio_chunk(websocket: WebSocket, data: dict, cl
     try:
         chunk_start_time = time.time()
         chunk_id = data.get("chunk_id", 0)
+        
+        # Security: Validate payload size (max 50MB)
+        audio_b64 = data.get("audio_data", "")
+        if len(audio_b64) > 50 * 1024 * 1024:  # 50MB limit
+            await websocket.send_text(json.dumps({
+                "type": "error",
+                "message": "Audio payload too large (max 50MB)"
+            }))
+            return
         
         streaming_logger.info(f"[CONVERSATION] Processing chunk {chunk_id} for {client_id}")
         

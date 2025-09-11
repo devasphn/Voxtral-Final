@@ -22,7 +22,9 @@ apt-get update && apt-get install -y \
     sox \
     git \
     build-essential \
-    ninja-build || echo "⚠️ Some system packages may have failed to install"
+    ninja-build \
+    lsof \
+    netcat-openbsd || echo "⚠️ Some system packages may have failed to install"
 
 # Install Python dependencies (excluding flash-attn for now)
 echo "🐍 Installing Python dependencies..."

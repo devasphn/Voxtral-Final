@@ -40,6 +40,12 @@ pkill -f "python.*tcp_server" || true
 pkill -f "python.*websocket_server" || true
 pkill -f "uvicorn.*ui_server" || true
 pkill -f "uvicorn.*health_check" || true
+pkill -f "nohup python" || true
+
+# Also kill any orphaned Python processes on our ports
+for port in 8000 8005 8766 8765; do
+    fuser -k ${port}/tcp 2>/dev/null || true
+done
 
 # Wait for processes to terminate
 sleep 2

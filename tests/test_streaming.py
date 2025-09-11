@@ -153,7 +153,8 @@ class TestWebSocketServer:
     @pytest.mark.asyncio
     async def test_websocket_message_handling(self, audio_base64):
         """Test WebSocket message handling"""
-        from src.streaming.websocket_server import WebSocketServer
+        # WebSocket server tests - using UI server WebSocket endpoint instead
+# from src.streaming.websocket_server import WebSocketServer
         
         server = WebSocketServer()
         

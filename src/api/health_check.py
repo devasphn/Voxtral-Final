@@ -87,8 +87,18 @@ async def detailed_status() -> JSONResponse:
         except Exception as e:
             gpu_info = {"gpu_available": False, "error": str(e)}
         
-        # Model status (from global variable to avoid circular imports)
-        model_info = _model_status.get("info", {"status": "unknown"})
+        # Get live model status from UI server
+        model_info = {"status": "unknown"}
+        try:
+            import aiohttp
+            async with aiohttp.ClientSession() as session:
+                async with session.get("http://localhost:8000/api/status", timeout=2) as response:
+                    if response.status == 200:
+                        ui_status = await response.json()
+                        model_info = ui_status.get("model", {"status": "unknown"})
+        except Exception:
+            # Fallback to global variable if UI server unavailable
+            model_info = _model_status.get("info", {"status": "unknown"})
         
         return JSONResponse({
             "status": "healthy",

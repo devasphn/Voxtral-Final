@@ -40,6 +40,12 @@ class StreamingConfig(BaseModel):
     buffer_size: int = 4096
     timeout_seconds: int = 300
     latency_target_ms: int = 200
+    max_payload_size_mb: int = 50
+    rate_limit_per_minute: int = 60
+    enable_cors: bool = True
+    cors_origins: List[str] = ["*"]
+    enable_auth: bool = False
+    auth_token: str = ""
 
 class LoggingConfig(BaseModel):
     level: str = "INFO"

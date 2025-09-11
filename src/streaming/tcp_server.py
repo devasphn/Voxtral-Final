@@ -23,23 +23,16 @@ if project_root not in sys.path:
 from src.utils.config import config
 from src.utils.logging_config import logger
 
-# FIXED: Import with proper error handling and correct paths
+# Import models with proper error handling
 try:
     from src.models.voxtral_model_realtime import voxtral_model
     from src.models.audio_processor_realtime import AudioProcessor
     logger.info("Successfully imported models for TCP server")
 except ImportError as e:
     logger.error(f"Import error in TCP server: {e}")
-    # Fallback imports
-    try:
-        # Try alternative import paths
-        from voxtral_model_realtime import voxtral_model
-        from audio_processor_realtime import AudioProcessor
-        logger.info("Successfully imported models using fallback paths")
-    except ImportError as e2:
-        logger.error(f"Fallback import also failed: {e2}")
-        voxtral_model = None
-        AudioProcessor = None
+    logger.error(f"Python path: {sys.path}")
+    logger.error(f"Current directory: {os.getcwd()}")
+    raise RuntimeError(f"Failed to import required models: {e}")
 
 class TCPStreamingServer:
     """PRODUCTION TCP server for real-time audio streaming with VAD"""
@@ -48,7 +41,7 @@ class TCPStreamingServer:
         self.clients: Set[asyncio.StreamWriter] = set()
         self.audio_processor = None
         self.host = config.server.host
-        self.port = config.server.tcp_ports[1]  # Use second TCP port (8766)
+        self.port = config.server.tcp_ports[1] if len(config.server.tcp_ports) > 1 else 8766
         self.initialized = False
         
         # Production metrics
@@ -57,6 +50,7 @@ class TCPStreamingServer:
         self.vad_filtered_requests = 0
         
         logger.info(f"TCP server configured for {self.host}:{self.port}")
+        logger.info(f"Available TCP ports in config: {config.server.tcp_ports}")
     
     async def initialize_components(self):
         """Initialize audio processor and model with error handling"""
@@ -343,29 +337,57 @@ class TCPStreamingServer:
         await self.initialize_components()
         
         try:
-            # Start TCP server
+            # Start TCP server with explicit socket binding
             server = await asyncio.start_server(
                 self.handle_client,
                 self.host,
                 self.port,
                 reuse_address=True,  # Allow reuse of address
-                reuse_port=True      # Allow reuse of port
+                reuse_port=True      # Allow reuse of port  
             )
             
-            logger.info(f"✅ TCP server running on {self.host}:{self.port}")
+            # Get the actual bound address
+            addrs = []
+            for sock in server.sockets:
+                addr = sock.getsockname()
+                addrs.append(f"{addr[0]}:{addr[1]}")
+                logger.info(f"✅ TCP server socket bound to {addr[0]}:{addr[1]}")
+            
+            # Verify the server is actually listening
+            if not server.sockets:
+                raise RuntimeError("TCP server failed to bind to any sockets")
+            
+            logger.info(f"✅ TCP server successfully listening on {', '.join(addrs)}")
             logger.info(f"🎙️ VAD-enabled streaming server ready for production")
             
-            # Keep server running
-            async with server:
-                await server.serve_forever()
+            # Important: Start serving before the context manager
+            server_task = asyncio.create_task(server.serve_forever())
+            
+            try:
+                # Keep the server running indefinitely
+                await server_task
+            except asyncio.CancelledError:
+                logger.info("TCP server task cancelled")
+            finally:
+                server.close()
+                await server.wait_closed()
+                logger.info("TCP server closed cleanly")
                 
         except OSError as e:
             if e.errno == 98:  # Address already in use
                 logger.error(f"❌ Port {self.port} is already in use. Please run cleanup.sh first.")
                 raise
-            else:
-                logger.error(f"❌ Failed to start TCP server: {e}")
+            elif e.errno == 13:  # Permission denied
+                logger.error(f"❌ Permission denied to bind to port {self.port}. Try a port > 1024 or run with sudo.")
                 raise
+            else:
+                logger.error(f"❌ Failed to start TCP server: {e} (errno: {e.errno})")
+                raise
+        except Exception as e:
+            logger.error(f"❌ Unexpected error starting TCP server: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            raise
 
 async def main():
     """Main entry point for TCP server"""
@@ -379,4 +401,16 @@ async def main():
         raise
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    # Set up asyncio event loop policy for better compatibility
+    if sys.platform == 'win32':
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    
+    # Run the main coroutine
+    try:
+        logger.info(f"🚀 Starting TCP server process...")
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.info("TCP server stopped by user")
+    except Exception as e:
+        logger.error(f"TCP server failed to start: {e}")
+        sys.exit(1)
