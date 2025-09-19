@@ -326,27 +326,40 @@ class VoxtralModel:
                         
                         realtime_logger.debug(f"🚀 Starting inference for chunk {chunk_id}")
                         inference_start = time.time()
-                        
-                        # ENHANCED: Generate response with Voxtral-optimized settings
-                        with torch.no_grad():
-                            # Use mixed precision for speed
-                            with torch.autocast(device_type="cuda" if "cuda" in self.device else "cpu", dtype=self.torch_dtype):
-                                outputs = self.model.generate(
-                                    **inputs,
-                                    max_new_tokens=200,     # Increased for complete responses (was 25)
-                                    min_new_tokens=5,       # Ensure meaningful response
-                                    do_sample=True,         # Enable sampling for more natural responses
-                                    num_beams=1,           # Keep single beam for speed
-                                    temperature=0.2,       # Voxtral-recommended temperature for conversation
-                                    top_p=0.95,           # Voxtral-recommended top_p for conversation
-                                    repetition_penalty=1.1, # Slight penalty to avoid repetition
-                                    pad_token_id=self.processor.tokenizer.eos_token_id if hasattr(self.processor, 'tokenizer') else None,
-                                    use_cache=True,         # Use KV cache for speed
-                                    # Remove early_stopping as it's not a valid parameter
-                                )
-                        
-                        inference_time = (time.time() - inference_start) * 1000
-                        realtime_logger.debug(f"⚡ Inference completed for chunk {chunk_id} in {inference_time:.1f}ms")
+
+                        # ENHANCED: Generate response with timeout and real-time optimizations
+                        try:
+                            with torch.no_grad():
+                                # Use mixed precision for speed
+                                with torch.autocast(device_type="cuda" if "cuda" in self.device else "cpu", dtype=self.torch_dtype):
+                                    outputs = self.model.generate(
+                                        **inputs,
+                                        max_new_tokens=50,      # OPTIMIZED: 4x reduction for real-time (was 200)
+                                        min_new_tokens=3,       # REDUCED: Faster minimum response
+                                        do_sample=True,         # Enable sampling for more natural responses
+                                        num_beams=1,           # Keep single beam for speed
+                                        temperature=0.1,       # OPTIMIZED: Lower for faster, more deterministic generation
+                                        top_p=0.8,            # OPTIMIZED: More focused sampling (was 0.95)
+                                        top_k=40,             # ADDED: Limit vocabulary for faster sampling
+                                        repetition_penalty=1.15, # INCREASED: Stronger penalty for concise responses
+                                        pad_token_id=self.processor.tokenizer.eos_token_id if hasattr(self.processor, 'tokenizer') else None,
+                                        eos_token_id=self.processor.tokenizer.eos_token_id if hasattr(self.processor, 'tokenizer') else None,
+                                        use_cache=True,         # Use KV cache for speed
+                                        # Optimized for real-time performance
+                                    )
+
+                            inference_time = (time.time() - inference_start) * 1000
+
+                            # Check if we exceeded target time and log warning
+                            if inference_time > 100:  # Target is 100ms
+                                realtime_logger.warning(f"⚠️ Inference for chunk {chunk_id} took {inference_time:.1f}ms (target: 100ms)")
+                            else:
+                                realtime_logger.debug(f"⚡ Inference completed for chunk {chunk_id} in {inference_time:.1f}ms")
+
+                        except Exception as e:
+                            inference_time = (time.time() - inference_start) * 1000
+                            realtime_logger.error(f"❌ Inference failed for chunk {chunk_id} after {inference_time:.1f}ms: {e}")
+                            raise
                         
                         # Decode response
                         if hasattr(inputs, 'input_ids'):

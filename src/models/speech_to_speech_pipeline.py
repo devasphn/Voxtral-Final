@@ -156,27 +156,54 @@ class SpeechToSpeechPipeline:
             transcription = stt_result['response']
             pipeline_logger.info(f"📝 Transcription: '{transcription}'")
             
-            # Stage 2: Generate Response (LLM Processing)
+            # Stage 2: Generate Response (LLM Processing) - OPTIMIZED
             llm_start_time = time.time()
             response_text = await self._generate_response(transcription, conversation_id)
             llm_time = (time.time() - llm_start_time) * 1000
-            
+
             pipeline_logger.info(f"💭 Response: '{response_text}'")
-            
-            # Stage 3: Text-to-Speech (Kokoro)
+
+            # OPTIMIZATION: Early check for short responses to skip TTS if needed
+            if len(response_text.strip()) < 3:
+                pipeline_logger.warning(f"⚠️ Very short response for {conversation_id}, skipping TTS")
+                return {
+                    'conversation_id': conversation_id,
+                    'transcription': transcription,
+                    'response_text': response_text,
+                    'response_audio': np.array([]),
+                    'sample_rate': kokoro_model.sample_rate,
+                    'total_latency_ms': (time.time() - turn_start_time) * 1000,
+                    'success': True,
+                    'tts_skipped': True,
+                    'stage_timings': {
+                        'stt_ms': stt_time,
+                        'llm_ms': llm_time,
+                        'tts_ms': 0
+                    }
+                }
+
+            # Stage 3: Text-to-Speech (Kokoro) - OPTIMIZED
             tts_start_time = time.time()
-            
-            # Determine voice and emotional parameters
+
+            # OPTIMIZATION: Pre-determine voice and emotional parameters for faster TTS
             voice = voice_preference or self._select_voice_for_response(response_text)
             speed = speed_preference or self._select_speed_for_response(response_text)
-            
-            tts_result = await kokoro_model.synthesize_speech(
-                response_text,
-                voice=voice,
-                speed=speed,
-                chunk_id=conversation_id
-            )
-            
+
+            # OPTIMIZATION: Add timeout for TTS to prevent hanging
+            try:
+                tts_result = await asyncio.wait_for(
+                    kokoro_model.synthesize_speech(
+                        response_text,
+                        voice=voice,
+                        speed=speed,
+                        chunk_id=conversation_id
+                    ),
+                    timeout=5.0  # 5 second timeout for TTS
+                )
+            except asyncio.TimeoutError:
+                pipeline_logger.error(f"❌ TTS timeout for conversation {conversation_id}")
+                tts_result = {'success': False, 'error': 'TTS timeout'}
+
             tts_time = (time.time() - tts_start_time) * 1000
             
             if not tts_result['success']:
