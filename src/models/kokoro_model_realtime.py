@@ -242,6 +242,7 @@ class KokoroTTSModel:
         """
         ULTRA-LOW LATENCY: Streaming speech synthesis for real-time applications
         Yields audio chunks as they are generated instead of waiting for completion
+        FIXED: Now generates proper WAV format chunks for browser compatibility
         """
         if not self.is_initialized:
             raise RuntimeError("Kokoro TTS model not initialized")
@@ -270,19 +271,48 @@ class KokoroTTSModel:
             chunk_count = 0
             for i, (gs, ps, audio) in enumerate(generator):
                 if audio is not None and len(audio) > 0:
-                    # Convert to bytes immediately and yield - handle both PyTorch tensors and NumPy arrays
+                    # FIXED: Convert to proper WAV format for browser compatibility
                     try:
                         # Check if it's a PyTorch tensor
                         if hasattr(audio, 'detach'):
                             # Convert PyTorch tensor to NumPy array first
-                            audio_np = audio.detach().cpu().numpy()
+                            audio_np = audio.detach().cpu().numpy().astype(np.float32)
                         else:
-                            # Already a NumPy array
-                            audio_np = audio
+                            # Already a NumPy array, ensure float32
+                            audio_np = np.array(audio, dtype=np.float32)
 
-                        # Convert to int16 and then to bytes
-                        audio_bytes = (audio_np * 32767).astype(np.int16).tobytes()
+                        # Normalize audio to prevent clipping and distortion
+                        if len(audio_np) > 0:
+                            # Normalize to [-1, 1] range
+                            max_val = np.max(np.abs(audio_np))
+                            if max_val > 1.0:
+                                audio_np = audio_np / max_val
+                            elif max_val > 0:
+                                # Gentle normalization to use full dynamic range
+                                audio_np = audio_np / max_val * 0.95
+
+                        # Create proper WAV format chunk using soundfile
+                        import soundfile as sf
+                        from io import BytesIO
+
+                        wav_buffer = BytesIO()
+                        sf.write(wav_buffer, audio_np, self.sample_rate, format='WAV', subtype='PCM_16')
+                        wav_bytes = wav_buffer.getvalue()
+                        wav_buffer.close()
+
+                        # Validate WAV chunk
+                        if len(wav_bytes) < 44:  # WAV header is 44 bytes minimum
+                            tts_logger.warning(f"[WARN] WAV chunk too small: {len(wav_bytes)} bytes, skipping")
+                            continue
+
+                        # Verify WAV headers
+                        if wav_bytes[:4] != b'RIFF' or wav_bytes[8:12] != b'WAVE':
+                            tts_logger.error(f"[ERROR] Invalid WAV headers in chunk {i}")
+                            continue
+
                         chunk_count += 1
+
+                        tts_logger.debug(f"[AUDIO] Generated WAV chunk {i}: {len(audio_np)} samples -> {len(wav_bytes)} bytes")
 
                     except Exception as conversion_error:
                         import traceback
@@ -290,23 +320,28 @@ class KokoroTTSModel:
                         tts_logger.error(f"[ERROR] Full traceback: {traceback.format_exc()}")
                         continue
 
-                    # Yield the audio chunk for immediate playback
+                    # Yield the properly formatted WAV audio chunk
                     yield {
-                        'audio_chunk': audio_bytes,
+                        'audio_chunk': wav_bytes,  # Now proper WAV format
                         'chunk_index': i,
                         'is_final': False,
-                        'sample_rate': self.sample_rate
+                        'sample_rate': self.sample_rate,
+                        'format': 'wav',  # Explicitly indicate WAV format
+                        'channels': 1,
+                        'bit_depth': 16,
+                        'chunk_size_bytes': len(wav_bytes),
+                        'audio_samples': len(audio_np)
                     }
 
                     # Minimal logging for speed
-                    if i % 10 == 0:
-                        tts_logger.debug(f"[AUDIO] Streaming chunk {i}: {len(audio)} samples -> {len(audio_bytes)} bytes")
+                    if i % 5 == 0:  # Reduced logging frequency
+                        tts_logger.debug(f"[AUDIO] Streaming WAV chunk {i}: {len(audio_np)} samples -> {len(wav_bytes)} bytes")
 
                     # Small delay to prevent overwhelming the pipeline
                     await asyncio.sleep(0.001)  # 1ms delay
 
             synthesis_time = (time.time() - synthesis_start_time) * 1000
-            tts_logger.info(f"[OK] Streaming synthesis completed in {synthesis_time:.1f}ms ({chunk_count} chunks)")
+            tts_logger.info(f"[OK] Streaming synthesis completed in {synthesis_time:.1f}ms ({chunk_count} WAV chunks)")
 
             # Send final chunk marker
             yield {
@@ -314,7 +349,8 @@ class KokoroTTSModel:
                 'chunk_index': chunk_count,
                 'is_final': True,
                 'synthesis_time_ms': synthesis_time,
-                'total_chunks': chunk_count
+                'total_chunks': chunk_count,
+                'format': 'wav'
             }
 
         except Exception as e:

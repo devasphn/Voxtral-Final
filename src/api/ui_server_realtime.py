@@ -517,7 +517,7 @@ async def home(request: Request):
         let silenceChunks = 0;
         let lastVadUpdate = 0;
 
-        // Enhanced continuous speech buffering variables
+        // ENHANCED: Continuous speech buffering variables with state management
         let continuousAudioBuffer = [];
         let speechStartTime = null;
         let lastSpeechTime = null;
@@ -526,13 +526,22 @@ async def home(request: Request):
         let pendingResponse = false;
         let lastResponseText = '';  // For deduplication
 
+        // FIXED: VAD state management variables
+        let vadState = 'idle'; // 'idle', 'listening', 'processing', 'responding', 'error'
+        let audioProcessingActive = true;
+        let conversationCycle = 0;
+        let lastAudioProcessTime = 0;
+
         // Streaming mode settings
         let streamingModeEnabled = true;  // Default to streaming mode
 
-        // Audio playback queue management
+        // ENHANCED: Audio playback queue management with overlap prevention
         let audioQueue = [];
         let isPlayingAudio = false;
         let currentAudio = null;
+        let audioPlaybackState = 'idle'; // 'idle', 'playing', 'paused', 'error'
+        let audioCleanupTimeout = null;
+        let audioPlaybackPromise = null;
         
         // ULTRA-LOW LATENCY: Speech-to-Speech only variables
         let currentMode = 'speech_to_speech';  // FIXED: Default to speech-to-speech mode
@@ -550,8 +559,48 @@ async def home(request: Request):
         const MIN_SPEECH_DURATION = 200;  // OPTIMIZED: Reduced minimum speech duration (was 500ms)
         const END_OF_SPEECH_SILENCE = 800;  // OPTIMIZED: Faster silence detection (was 1500ms)
         
-        function log(message, type = 'info') {
-            console.log(`[Voxtral VAD] ${message}`);
+        // ENHANCED: Detailed logging with categories and VAD state tracking
+        function log(message, category = 'INFO') {
+            const timestamp = new Date().toLocaleTimeString();
+            const vadInfo = vadState !== 'idle' ? ` [VAD:${vadState}]` : '';
+            const audioInfo = audioPlaybackState !== 'idle' ? ` [AUDIO:${audioPlaybackState}]` : '';
+            const cycleInfo = conversationCycle > 0 ? ` [CYCLE:${conversationCycle}]` : '';
+            const logMessage = `[${timestamp}]${vadInfo}${audioInfo}${cycleInfo} [${category}] ${message}`;
+            console.log(logMessage);
+
+            // Also log to UI if container exists
+            const logContainer = document.getElementById('logContainer');
+            if (logContainer) {
+                const logEntry = document.createElement('div');
+                logEntry.textContent = logMessage;
+                logEntry.className = `log-entry log-${category.toLowerCase()}`;
+                logContainer.appendChild(logEntry);
+                logContainer.scrollTop = logContainer.scrollHeight;
+
+                // Keep only last 150 log entries (increased for better debugging)
+                while (logContainer.children.length > 150) {
+                    logContainer.removeChild(logContainer.firstChild);
+                }
+            }
+        }
+
+        // ENHANCED: Specialized logging functions
+        function logVAD(message) {
+            log(message, 'VAD');
+        }
+
+        function logAudio(message) {
+            log(message, 'AUDIO');
+        }
+
+        function logError(message) {
+            log(message, 'ERROR');
+        }
+
+        function logDebug(message) {
+            if (window.location.search.includes('debug=true')) {
+                log(message, 'DEBUG');
+            }
         }
 
         // ULTRA-LOW LATENCY: Enhanced VAD function for continuous speech detection
@@ -901,11 +950,12 @@ async def home(request: Request):
                 };
                 
                 ws.onerror = (error) => {
-                    updateStatus('Connection error - check console for details', 'error');
+                    updateStatus('Connection error - attempting recovery', 'error');
                     updateConnectionStatus(false);
                     updateVadStatus('waiting');
-                    log('WebSocket error occurred');
+                    logError('WebSocket error occurred');
                     console.error('WebSocket error:', error);
+                    handleWebSocketError(error);
                 };
                 
             } catch (error) {
@@ -932,8 +982,11 @@ async def home(request: Request):
                         log('Duplicate response detected - skipping display');
                     }
 
-                    // Reset pending response flag to allow new speech processing
-                    pendingResponse = false;
+                    // FIXED: Reset VAD state after receiving complete response
+                    setTimeout(() => {
+                        resetVADState();
+                        log('[VAD] VAD state reset after response completion');
+                    }, 1000); // Small delay to ensure audio playback starts
                     break;
                     
                 case 'error':
@@ -1080,32 +1133,125 @@ async def home(request: Request):
             }
         }
 
+        // FIXED: VAD state reset function to prevent unresponsive state
+        function resetVADState() {
+            log('[VAD] Resetting VAD state for new conversation cycle');
+
+            // Reset speech detection variables
+            continuousAudioBuffer = [];
+            speechStartTime = null;
+            lastSpeechTime = null;
+            isSpeechActive = false;
+            silenceStartTime = null;
+            pendingResponse = false;
+
+            // Reset VAD state management
+            vadState = 'listening';
+            audioProcessingActive = true;
+            conversationCycle++;
+            lastAudioProcessTime = Date.now();
+
+            // Update UI indicators
+            updateVadIndicator('silence');
+            updateStatus('Listening...', 'success');
+
+            log(`[VAD] VAD state reset completed for cycle ${conversationCycle}`);
+        }
+
         async function processAudioQueue() {
             if (isPlayingAudio || audioQueue.length === 0) {
+                log('[AUDIO] Audio queue processing already in progress or empty queue');
                 return;
             }
 
             isPlayingAudio = true;
+            audioPlaybackState = 'playing';
+            log(`[AUDIO] Starting audio queue processing (${audioQueue.length} items)`);
 
-            while (audioQueue.length > 0) {
-                const audioItem = audioQueue.shift();
+            try {
+                while (audioQueue.length > 0) {
+                    const audioItem = audioQueue.shift();
 
-                try {
-                    log(`[AUDIO] Processing audio chunk ${audioItem.chunkId} from queue`);
-                    await playAudioItem(audioItem);
-                    log(`[OK] Completed playing audio chunk ${audioItem.chunkId}`);
-                } catch (error) {
-                    log(`[ERROR] Error playing audio chunk ${audioItem.chunkId}: ${error}`);
-                    console.error('Audio playback error:', error);
+                    try {
+                        log(`[AUDIO] Processing audio chunk ${audioItem.chunkId} from queue`);
+
+                        // FIXED: Ensure previous audio is completely stopped before playing next
+                        await stopCurrentAudio();
+
+                        // Play the audio item and wait for completion
+                        audioPlaybackPromise = playAudioItem(audioItem);
+                        await audioPlaybackPromise;
+
+                        log(`[OK] Completed playing audio chunk ${audioItem.chunkId}`);
+
+                    } catch (error) {
+                        log(`[ERROR] Error playing audio chunk ${audioItem.chunkId}: ${error}`);
+                        console.error('Audio playback error:', error);
+
+                        // Continue with next chunk even if current one fails
+                        await stopCurrentAudio();
+                    }
+
+                    // ULTRA-LOW LATENCY: Minimal delay between audio chunks to prevent overlap
+                    await new Promise(resolve => setTimeout(resolve, 50));  // Increased slightly for stability
                 }
-
-                // ULTRA-LOW LATENCY: Minimal delay between audio chunks
-                await new Promise(resolve => setTimeout(resolve, 25));  // OPTIMIZED: Reduced from 100ms to 25ms
+            } catch (error) {
+                log(`[ERROR] Critical error in audio queue processing: ${error}`);
+                console.error('Critical audio queue error:', error);
+            } finally {
+                isPlayingAudio = false;
+                audioPlaybackState = 'idle';
+                audioPlaybackPromise = null;
+                updateStatus('Ready for conversation', 'success');
+                log('[AUDIO] Audio queue processing completed');
             }
+        }
 
-            isPlayingAudio = false;
-            updateStatus('Ready for conversation', 'success');
-            log('[AUDIO] Audio queue processing completed');
+        // FIXED: Enhanced audio cleanup function to prevent overlap
+        async function stopCurrentAudio() {
+            return new Promise((resolve) => {
+                if (currentAudio) {
+                    log('[AUDIO] Stopping current audio playback');
+
+                    // Clear any existing cleanup timeout
+                    if (audioCleanupTimeout) {
+                        clearTimeout(audioCleanupTimeout);
+                        audioCleanupTimeout = null;
+                    }
+
+                    // Set up cleanup with timeout
+                    const cleanup = () => {
+                        if (currentAudio) {
+                            try {
+                                currentAudio.pause();
+                                currentAudio.currentTime = 0;
+                                if (currentAudio.src && currentAudio.src.startsWith('blob:')) {
+                                    URL.revokeObjectURL(currentAudio.src);
+                                }
+                            } catch (e) {
+                                log(`[WARN] Error during audio cleanup: ${e.message}`);
+                            }
+                            currentAudio = null;
+                        }
+                        audioPlaybackState = 'idle';
+                        resolve();
+                    };
+
+                    // Try graceful stop first
+                    try {
+                        currentAudio.addEventListener('pause', cleanup, { once: true });
+                        currentAudio.pause();
+
+                        // Fallback timeout in case pause event doesn't fire
+                        audioCleanupTimeout = setTimeout(cleanup, 100);
+                    } catch (e) {
+                        log(`[WARN] Error pausing audio, forcing cleanup: ${e.message}`);
+                        cleanup();
+                    }
+                } else {
+                    resolve();
+                }
+            });
         }
 
         function playAudioItem(audioItem) {
@@ -1113,32 +1259,60 @@ async def home(request: Request):
                 try {
                     const { chunkId, audioData, metadata, voice } = audioItem;
 
-                    log(`[AUDIO] Converting base64 audio for chunk ${chunkId} (${audioData.length} chars)`);
+                    log(`[AUDIO] Processing audio chunk ${chunkId} (${audioData.length} chars base64)`);
 
-                    // Convert base64 to blob with proper error handling
-                    const binaryString = atob(audioData);
-                    const bytes = new Uint8Array(binaryString.length);
-                    for (let i = 0; i < binaryString.length; i++) {
-                        bytes[i] = binaryString.charCodeAt(i);
+                    // FIXED: Enhanced base64 to blob conversion with validation
+                    let bytes;
+                    try {
+                        const binaryString = atob(audioData);
+                        bytes = new Uint8Array(binaryString.length);
+                        for (let i = 0; i < binaryString.length; i++) {
+                            bytes[i] = binaryString.charCodeAt(i);
+                        }
+                    } catch (decodeError) {
+                        log(`[ERROR] Base64 decode failed for chunk ${chunkId}: ${decodeError.message}`);
+                        reject(new Error(`Base64 decode failed: ${decodeError.message}`));
+                        return;
                     }
 
-                    log(`[AUDIO] Created audio buffer: ${bytes.length} bytes`);
+                    log(`[AUDIO] Decoded audio buffer: ${bytes.length} bytes`);
 
-                    // Create audio blob with explicit WAV headers
+                    // FIXED: Validate WAV format headers
+                    if (bytes.length < 44) {
+                        log(`[ERROR] Audio chunk ${chunkId} too small: ${bytes.length} bytes (minimum 44 for WAV)`);
+                        reject(new Error(`Audio chunk too small: ${bytes.length} bytes`));
+                        return;
+                    }
+
+                    // Check for proper WAV headers
+                    const riffHeader = String.fromCharCode(bytes[0], bytes[1], bytes[2], bytes[3]);
+                    const waveHeader = String.fromCharCode(bytes[8], bytes[9], bytes[10], bytes[11]);
+
+                    if (riffHeader !== 'RIFF' || waveHeader !== 'WAVE') {
+                        log(`[ERROR] Invalid WAV headers in chunk ${chunkId}: RIFF='${riffHeader}', WAVE='${waveHeader}'`);
+                        reject(new Error(`Invalid WAV format headers`));
+                        return;
+                    }
+
+                    // Create audio blob with explicit WAV MIME type
                     const audioBlob = new Blob([bytes], { type: 'audio/wav' });
                     const audioUrl = URL.createObjectURL(audioBlob);
 
-                    // Create audio element with enhanced configuration
+                    // Create audio element with optimized configuration for streaming
                     const audio = new Audio();
                     audio.preload = 'auto';
                     audio.volume = 1.0;
+                    audio.playbackRate = 1.0;  // Ensure normal playback speed
 
-                    // Enhanced audio debugging
-                    log(`[AUDIO] Audio metadata: ${JSON.stringify(metadata)}`);
-                    log(`[AUDIO] Audio blob size: ${audioBlob.size} bytes, type: ${audioBlob.type}`);
+                    // Enhanced audio debugging with WAV info
+                    log(`[AUDIO] WAV chunk ${chunkId} - Size: ${audioBlob.size} bytes, Headers: ${riffHeader}/${waveHeader}`);
+                    if (metadata) {
+                        log(`[AUDIO] Metadata: ${JSON.stringify(metadata)}`);
+                    }
 
-                    // Store reference for cleanup
+                    // Store reference for cleanup and set state
                     currentAudio = audio;
+                    audioPlaybackState = 'playing';
 
                     // Set up event listeners BEFORE setting src
                     audio.addEventListener('loadstart', () => {
@@ -1170,6 +1344,11 @@ async def home(request: Request):
                         log(`[OK] Finished playing audio chunk ${chunkId} - Total duration: ${audio.duration}s`);
                         URL.revokeObjectURL(audioUrl);
                         currentAudio = null;
+                        audioPlaybackState = 'idle';
+                        if (audioCleanupTimeout) {
+                            clearTimeout(audioCleanupTimeout);
+                            audioCleanupTimeout = null;
+                        }
                         resolve();
                     });
 
@@ -1184,6 +1363,11 @@ async def home(request: Request):
                         log(`[ERROR] Audio element state - src: ${audio.src.substring(0, 50)}..., duration: ${audio.duration}`);
                         URL.revokeObjectURL(audioUrl);
                         currentAudio = null;
+                        audioPlaybackState = 'error';
+                        if (audioCleanupTimeout) {
+                            clearTimeout(audioCleanupTimeout);
+                            audioCleanupTimeout = null;
+                        }
                         reject(new Error(`Audio playback failed: ${JSON.stringify(errorDetails)}`));
                     });
 
@@ -1191,6 +1375,11 @@ async def home(request: Request):
                         log(`[WARN] Audio playback aborted for chunk ${chunkId}`);
                         URL.revokeObjectURL(audioUrl);
                         currentAudio = null;
+                        audioPlaybackState = 'idle';
+                        if (audioCleanupTimeout) {
+                            clearTimeout(audioCleanupTimeout);
+                            audioCleanupTimeout = null;
+                        }
                         resolve(); // Don't reject on abort, just continue
                     });
 
@@ -1300,7 +1489,48 @@ async def home(request: Request):
                 document.getElementById('durationMetric').textContent = `${minutes}:${seconds}`;
             }
         }
-        
+
+        // FIXED: Enhanced error recovery function
+        function handleAudioProcessingError(error, context = 'unknown') {
+            log(`[ERROR] Audio processing error in ${context}: ${error.message}`);
+            console.error(`Audio processing error in ${context}:`, error);
+
+            // Update state
+            vadState = 'error';
+            audioPlaybackState = 'error';
+
+            // Attempt recovery
+            setTimeout(() => {
+                log('[RECOVERY] Attempting audio processing recovery');
+                try {
+                    resetVADState();
+                    updateStatus('Recovered - Ready for conversation', 'success');
+                    log('[RECOVERY] Audio processing recovery successful');
+                } catch (recoveryError) {
+                    log(`[ERROR] Recovery failed: ${recoveryError.message}`);
+                    updateStatus('Audio processing error - please refresh page', 'error');
+                }
+            }, 2000);
+        }
+
+        // FIXED: WebSocket connection recovery
+        function handleWebSocketError(error) {
+            log(`[ERROR] WebSocket error: ${error}`);
+            console.error('WebSocket error:', error);
+
+            // Attempt reconnection after delay
+            setTimeout(() => {
+                if (!ws || ws.readyState === WebSocket.CLOSED) {
+                    log('[RECOVERY] Attempting WebSocket reconnection');
+                    try {
+                        connectWebSocket();
+                    } catch (reconnectError) {
+                        log(`[ERROR] WebSocket reconnection failed: ${reconnectError.message}`);
+                    }
+                }
+            }, 3000);
+        }
+
         async function startConversation() {
             try {
                 log('Starting conversational audio streaming with VAD...');
@@ -1325,20 +1555,63 @@ async def home(request: Request):
                 await audioContext.resume();
                 log(`Audio context created with sample rate: ${audioContext.sampleRate}`);
                 
-                audioWorkletNode = audioContext.createScriptProcessor(CHUNK_SIZE, 1, 1);
-                const source = audioContext.createMediaStreamSource(mediaStream);
-                
-                source.connect(audioWorkletNode);
-                audioWorkletNode.connect(audioContext.destination);
+                // FIXED: Use AudioWorkletNode instead of deprecated ScriptProcessorNode
+                try {
+                    // Try to use AudioWorkletNode (modern approach)
+                    await audioContext.audioWorklet.addModule('data:application/javascript;base64,' + btoa(`
+                        class AudioProcessor extends AudioWorkletProcessor {
+                            process(inputs, outputs, parameters) {
+                                const input = inputs[0];
+                                if (input.length > 0) {
+                                    const inputData = input[0];
+                                    // Send audio data to main thread
+                                    this.port.postMessage({
+                                        type: 'audiodata',
+                                        data: inputData
+                                    });
+                                }
+                                return true;
+                            }
+                        }
+                        registerProcessor('audio-processor', AudioProcessor);
+                    `));
+
+                    audioWorkletNode = new AudioWorkletNode(audioContext, 'audio-processor');
+                    const source = audioContext.createMediaStreamSource(mediaStream);
+                    source.connect(audioWorkletNode);
+
+                    log('[AUDIO] Using modern AudioWorkletNode for audio processing');
+
+                } catch (workletError) {
+                    // Fallback to ScriptProcessorNode for older browsers
+                    log('[WARN] AudioWorkletNode not supported, falling back to ScriptProcessorNode');
+                    audioWorkletNode = audioContext.createScriptProcessor(CHUNK_SIZE, 1, 1);
+                    const source = audioContext.createMediaStreamSource(mediaStream);
+
+                    source.connect(audioWorkletNode);
+                    audioWorkletNode.connect(audioContext.destination);
+                }
                 
                 let audioBuffer = [];
                 let lastChunkTime = Date.now();
 
-                audioWorkletNode.onaudioprocess = (event) => {
-                    if (!isStreaming || pendingResponse) return;
+                // FIXED: Enhanced audio processing event handler with VAD state management
+                const handleAudioData = (inputData) => {
+                    // FIXED: Check if audio processing is active and not in unresponsive state
+                    if (!isStreaming || !audioProcessingActive) {
+                        return;
+                    }
 
-                    const inputBuffer = event.inputBuffer;
-                    const inputData = inputBuffer.getChannelData(0);
+                    // FIXED: Check for pending response but allow processing after timeout
+                    const now = Date.now();
+                    if (pendingResponse && (now - lastAudioProcessTime) < 10000) { // 10 second timeout
+                        return;
+                    } else if (pendingResponse && (now - lastAudioProcessTime) >= 10000) {
+                        logVAD('Pending response timeout - resetting VAD state');
+                        resetVADState();
+                    }
+
+                    lastAudioProcessTime = now;
 
                     // Update volume meter and VAD indicator
                     updateVolumeMeter(inputData);
@@ -1375,6 +1648,11 @@ async def home(request: Request):
 
                         // Process the complete utterance
                         log(`Processing complete utterance: ${continuousAudioBuffer.length} samples, ${(lastSpeechTime - speechStartTime)}ms duration`);
+
+                        // FIXED: Update VAD state before processing
+                        vadState = 'processing';
+                        updateVadIndicator('processing');
+
                         sendCompleteUtterance(new Float32Array(continuousAudioBuffer));
 
                         // Reset for next utterance
@@ -1384,6 +1662,7 @@ async def home(request: Request):
                         lastSpeechTime = null;
                         silenceStartTime = null;
                         pendingResponse = true;  // Prevent processing until response received
+                        vadState = 'responding';
                     }
 
                     // ULTRA-LOW LATENCY: Prevent buffer from growing too large (max 5 seconds for lower latency)
@@ -1393,6 +1672,25 @@ async def home(request: Request):
                         log('Audio buffer trimmed to prevent memory overflow (5s max)');
                     }
                 };
+
+                // Set up event handlers based on node type
+                if (audioWorkletNode.port) {
+                    // AudioWorkletNode - modern approach
+                    audioWorkletNode.port.onmessage = (event) => {
+                        if (event.data.type === 'audiodata') {
+                            handleAudioData(event.data.data);
+                        }
+                    };
+                    log('[AUDIO] AudioWorkletNode message handler configured');
+                } else {
+                    // ScriptProcessorNode - legacy approach
+                    audioWorkletNode.onaudioprocess = (event) => {
+                        const inputBuffer = event.inputBuffer;
+                        const inputData = inputBuffer.getChannelData(0);
+                        handleAudioData(inputData);
+                    };
+                    log('[AUDIO] ScriptProcessorNode event handler configured');
+                }
                 
                 isStreaming = true;
                 streamStartTime = Date.now();
@@ -2029,54 +2327,74 @@ async def handle_conversational_audio_chunk(websocket: WebSocket, data: dict, cl
                                 chunk_id=f"{chunk_id}_tts_{stream_chunk.content['sequence_number']}"
                             ):
                                 if tts_chunk.get('audio_chunk'):
-                                    # Convert raw audio to proper WAV format for browser playback
+                                    # FIXED: Audio chunk is now already in proper WAV format from Kokoro model
                                     try:
-                                        import soundfile as sf
-                                        from io import BytesIO
+                                        audio_chunk = tts_chunk['audio_chunk']
 
-                                        # Get audio data and sample rate
-                                        audio_data = tts_chunk['audio_chunk']
-                                        sample_rate = tts_chunk.get('sample_rate', 24000)
+                                        # Validate that we have proper WAV data
+                                        if isinstance(audio_chunk, bytes) and len(audio_chunk) >= 44:
+                                            # Check WAV headers
+                                            if audio_chunk[:4] == b'RIFF' and audio_chunk[8:12] == b'WAVE':
+                                                # Already proper WAV format, just encode to base64
+                                                audio_b64 = base64.b64encode(audio_chunk).decode('utf-8')
 
-                                        # Import numpy at the top of this block
-                                        import numpy as np
+                                                streaming_logger.debug(f"[AUDIO] Using pre-formatted WAV chunk: {len(audio_chunk)} bytes")
+                                            else:
+                                                streaming_logger.warning(f"[WARN] Invalid WAV headers, attempting conversion")
+                                                raise Exception("Invalid WAV headers")
+                                        else:
+                                            streaming_logger.warning(f"[WARN] Invalid audio chunk format, attempting conversion")
+                                            raise Exception("Invalid audio chunk format")
 
-                                        # Convert audio data to numpy array if needed
-                                        if isinstance(audio_data, bytes):
-                                            # Convert bytes to numpy array (assuming float32)
-                                            audio_data = np.frombuffer(audio_data, dtype=np.float32)
-                                        elif hasattr(audio_data, 'detach'):
-                                            # Convert torch tensor to numpy
-                                            audio_data = audio_data.detach().cpu().numpy()
-                                        elif not isinstance(audio_data, np.ndarray):
-                                            # Convert other types to numpy array
-                                            audio_data = np.array(audio_data, dtype=np.float32)
+                                    except Exception as format_error:
+                                        # Fallback: Convert raw audio to proper WAV format
+                                        streaming_logger.warning(f"[WARN] Audio format issue, converting: {format_error}")
+                                        try:
+                                            import soundfile as sf
+                                            from io import BytesIO
+                                            import numpy as np
 
-                                        # Normalize audio to prevent clipping
-                                        if len(audio_data) > 0:
-                                            max_val = np.max(np.abs(audio_data))
-                                            if max_val > 1.0:
-                                                audio_data = audio_data / max_val
+                                            # Get audio data and sample rate
+                                            audio_data = tts_chunk['audio_chunk']
+                                            sample_rate = tts_chunk.get('sample_rate', 24000)
 
-                                        # Create WAV file in memory
-                                        wav_buffer = BytesIO()
-                                        sf.write(wav_buffer, audio_data, sample_rate, format='WAV', subtype='PCM_16')
-                                        wav_bytes = wav_buffer.getvalue()
-                                        wav_buffer.close()
+                                            # Convert audio data to numpy array if needed
+                                            if isinstance(audio_data, bytes):
+                                                # Try to interpret as int16 PCM data
+                                                audio_data = np.frombuffer(audio_data, dtype=np.int16).astype(np.float32) / 32767.0
+                                            elif hasattr(audio_data, 'detach'):
+                                                # Convert torch tensor to numpy
+                                                audio_data = audio_data.detach().cpu().numpy().astype(np.float32)
+                                            elif not isinstance(audio_data, np.ndarray):
+                                                # Convert other types to numpy array
+                                                audio_data = np.array(audio_data, dtype=np.float32)
 
-                                        # Validate WAV file
-                                        if len(wav_bytes) < 44:  # WAV header is 44 bytes
-                                            raise Exception(f"WAV file too small: {len(wav_bytes)} bytes")
+                                            # Normalize audio to prevent clipping
+                                            if len(audio_data) > 0:
+                                                max_val = np.max(np.abs(audio_data))
+                                                if max_val > 1.0:
+                                                    audio_data = audio_data / max_val
+                                                elif max_val > 0:
+                                                    audio_data = audio_data / max_val * 0.95
 
-                                        # Convert to base64
-                                        audio_b64 = base64.b64encode(wav_bytes).decode('utf-8')
+                                            # Create WAV file in memory
+                                            wav_buffer = BytesIO()
+                                            sf.write(wav_buffer, audio_data, sample_rate, format='WAV', subtype='PCM_16')
+                                            wav_bytes = wav_buffer.getvalue()
+                                            wav_buffer.close()
 
-                                        streaming_logger.debug(f"[AUDIO] Created WAV chunk: {len(wav_bytes)} bytes from {len(audio_data)} samples")
+                                            # Validate WAV file
+                                            if len(wav_bytes) < 44:  # WAV header is 44 bytes
+                                                raise Exception(f"WAV file too small: {len(wav_bytes)} bytes")
 
-                                    except Exception as wav_error:
-                                        streaming_logger.error(f"[ERROR] WAV conversion failed: {wav_error}")
-                                        # Fallback to raw audio
-                                        audio_b64 = base64.b64encode(tts_chunk['audio_chunk']).decode('utf-8')
+                                            # Convert to base64
+                                            audio_b64 = base64.b64encode(wav_bytes).decode('utf-8')
+
+                                            streaming_logger.debug(f"[AUDIO] Converted to WAV: {len(wav_bytes)} bytes from {len(audio_data)} samples")
+
+                                        except Exception as wav_error:
+                                            streaming_logger.error(f"[ERROR] WAV conversion failed: {wav_error}")
+                                            continue  # Skip this chunk
 
                                     # Send audio chunk immediately
                                     await websocket.send_text(json.dumps({
