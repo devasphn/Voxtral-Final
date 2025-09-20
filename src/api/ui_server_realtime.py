@@ -2018,10 +2018,13 @@ async def handle_conversational_audio_chunk(websocket: WebSocket, data: dict, cl
                     streaming_logger.info(f"[CONVERSATION] Duplicate response detected for chunk {chunk_id} - skipping")
             else:
                 streaming_logger.warning(f"[CONVERSATION] Processing failed for chunk {chunk_id}")
-                
+
         except Exception as e:
-            streaming_logger.error(f"[CONVERSATION] Voxtral processing error for chunk {chunk_id}: {e}")
-        
+            streaming_logger.error(f"[CONVERSATION] Voxtral/Streaming processing error for chunk {chunk_id}: {e}")
+            # End Voxtral timing on error
+            if 'voxtral_timing_id' in locals():
+                performance_monitor.end_timing(voxtral_timing_id)
+
     except Exception as e:
         streaming_logger.error(f"[CONVERSATION] Error handling audio chunk: {e}")
 
