@@ -208,11 +208,23 @@ class VoxtralModel:
                 realtime_logger.warning("⚠️ CUDA device specified but CUDA not available, falling back to CPU")
                 self.device = "cpu"
             
-            # Load processor
+            # Load processor with authentication
             realtime_logger.info(f"📥 Loading AutoProcessor from {config.model.name}")
+
+            processor_kwargs = {
+                "cache_dir": config.model.cache_dir,
+                "trust_remote_code": True
+            }
+
+            # FIXED: Add authentication token if available
+            import os
+            if os.getenv('HF_TOKEN'):
+                processor_kwargs["token"] = os.getenv('HF_TOKEN')
+                realtime_logger.info("🔑 Using HuggingFace authentication token for processor")
+
             self.processor = AutoProcessor.from_pretrained(
                 config.model.name,
-                cache_dir=config.model.cache_dir
+                **processor_kwargs
             )
             realtime_logger.info("✅ AutoProcessor loaded successfully")
             
@@ -223,39 +235,93 @@ class VoxtralModel:
             # Load model with FIXED attention settings
             realtime_logger.info(f"📥 Loading Voxtral model from {config.model.name}")
             
+            # FIXED: Updated model loading parameters for compatibility
             model_kwargs = {
                 "cache_dir": config.model.cache_dir,
-                "torch_dtype": self.torch_dtype,
+                "dtype": self.torch_dtype,  # FIXED: Use 'dtype' instead of deprecated 'torch_dtype'
                 "device_map": "auto",
                 "low_cpu_mem_usage": True,
                 "trust_remote_code": True,
                 "attn_implementation": attn_implementation,
                 # ULTRA-LOW LATENCY: Additional optimization parameters
                 "use_safetensors": True,  # Faster loading
-                "variant": "fp16" if self.torch_dtype == torch.float16 else None,  # Use FP16 variant if available
+                # REMOVED: variant parameter that may cause loading issues
             }
+
+            # FIXED: Add authentication token if available
+            import os
+            if os.getenv('HF_TOKEN'):
+                model_kwargs["token"] = os.getenv('HF_TOKEN')
+                realtime_logger.info("🔑 Using HuggingFace authentication token")
             
             try:
+                realtime_logger.info(f"🔄 Loading Voxtral model with dtype={self.torch_dtype}, attention={attn_implementation}")
                 self.model = VoxtralForConditionalGeneration.from_pretrained(
                     config.model.name,
                     **model_kwargs
                 )
                 realtime_logger.info(f"✅ Voxtral model loaded successfully with {attn_implementation} attention")
-                
+
             except Exception as model_load_error:
-                # Fallback to eager attention
+                realtime_logger.error(f"❌ Initial model loading failed: {model_load_error}")
+
+                # ENHANCED: Multiple fallback strategies for robust loading
                 if attn_implementation != "eager":
                     realtime_logger.warning(f"⚠️ Model loading with {attn_implementation} failed: {model_load_error}")
                     realtime_logger.info("🔄 Retrying with eager attention as fallback...")
-                    
+
                     model_kwargs["attn_implementation"] = "eager"
+                    try:
+                        self.model = VoxtralForConditionalGeneration.from_pretrained(
+                            config.model.name,
+                            **model_kwargs
+                        )
+                        realtime_logger.info("✅ Voxtral model loaded successfully with eager attention fallback")
+                    except Exception as eager_error:
+                        realtime_logger.error(f"❌ Eager attention fallback also failed: {eager_error}")
+                        # Try without safetensors as final fallback
+                        realtime_logger.info("🔄 Trying final fallback without safetensors...")
+                        model_kwargs["use_safetensors"] = False
+                        self.model = VoxtralForConditionalGeneration.from_pretrained(
+                            config.model.name,
+                            **model_kwargs
+                        )
+                        realtime_logger.info("✅ Model loaded successfully without safetensors")
+
+                elif "safetensors" in str(model_load_error).lower() or "num" in str(model_load_error).lower():
+                    realtime_logger.warning(f"⚠️ Safetensors loading failed: {model_load_error}")
+                    realtime_logger.info("🔄 Retrying without safetensors...")
+
+                    model_kwargs["use_safetensors"] = False
                     self.model = VoxtralForConditionalGeneration.from_pretrained(
                         config.model.name,
                         **model_kwargs
                     )
-                    realtime_logger.info("✅ Voxtral model loaded successfully with eager attention fallback")
+                    realtime_logger.info("✅ Model loaded successfully without safetensors")
+
                 else:
-                    raise model_load_error
+                    # Generic fallback - try with minimal parameters
+                    realtime_logger.warning(f"⚠️ Generic model loading error: {model_load_error}")
+                    realtime_logger.info("🔄 Trying minimal parameter fallback...")
+
+                    minimal_kwargs = {
+                        "cache_dir": config.model.cache_dir,
+                        "dtype": self.torch_dtype,
+                        "device_map": "auto",
+                        "trust_remote_code": True,
+                        "use_safetensors": False,
+                        "attn_implementation": "eager"
+                    }
+
+                    # Add token if available
+                    if os.getenv('HF_TOKEN'):
+                        minimal_kwargs["token"] = os.getenv('HF_TOKEN')
+
+                    self.model = VoxtralForConditionalGeneration.from_pretrained(
+                        config.model.name,
+                        **minimal_kwargs
+                    )
+                    realtime_logger.info("✅ Model loaded successfully with minimal parameters")
             
             # Set model to evaluation mode
             self.model.eval()

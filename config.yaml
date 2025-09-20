@@ -13,6 +13,9 @@ model:
   device: "cuda"
   torch_dtype: "float16"  # OPTIMIZED: Use float16 for maximum GPU performance (faster than bfloat16)
   max_memory_per_gpu: "6GB"
+  # ADDED: Authentication and loading options
+  require_auth_token: true  # Set to true if HF_TOKEN is required
+  use_safetensors: true     # Enable safetensors by default, fallback if fails
   
 audio:
   sample_rate: 16000
