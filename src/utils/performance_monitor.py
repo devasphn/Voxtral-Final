@@ -87,7 +87,7 @@ class PerformanceMonitor:
         self.baseline_latency_ms = None
         
         perf_logger.info("PerformanceMonitor initialized")
-        perf_logger.info(f"🎯 Performance targets: {self.targets}")
+        perf_logger.info(f"[TARGET] Performance targets: {self.targets}")
     
     def start_timing(self, operation: str, metadata: Dict[str, Any] = None) -> str:
         """
@@ -106,7 +106,7 @@ class PerformanceMonitor:
         with self.lock:
             self.active_timings[operation_id] = timing_op
         
-        perf_logger.debug(f"⏱️ Started timing: {operation} (ID: {operation_id})")
+        perf_logger.debug(f"[TIME] Started timing: {operation} (ID: {operation_id})")
         return operation_id
     
     def end_timing(self, timing_id: str) -> float:
@@ -118,7 +118,7 @@ class PerformanceMonitor:
         
         with self.lock:
             if timing_id not in self.active_timings:
-                perf_logger.warning(f"⚠️ Timing ID not found: {timing_id}")
+                perf_logger.warning(f"[WARN] Timing ID not found: {timing_id}")
                 return 0.0
             
             timing_op = self.active_timings.pop(timing_id)
@@ -131,7 +131,7 @@ class PerformanceMonitor:
             # Update statistics
             self._update_statistics(timing_op)
         
-        perf_logger.debug(f"⏱️ Ended timing: {timing_op.operation_name} - {timing_op.duration_ms:.1f}ms")
+        perf_logger.debug(f"[TIME] Ended timing: {timing_op.operation_name} - {timing_op.duration_ms:.1f}ms")
         return timing_op.duration_ms
     
     def log_latency_breakdown(self, components: Dict[str, float]) -> None:
@@ -165,10 +165,10 @@ class PerformanceMonitor:
                     self.consecutive_failures += 1
             
             # Log breakdown
-            perf_logger.info(f"📊 Latency breakdown (Total: {total_latency:.1f}ms):")
+            perf_logger.info(f"[STATS] Latency breakdown (Total: {total_latency:.1f}ms):")
             for component, latency in components.items():
                 target = self.targets.get(component, None)
-                status = "✅" if target and latency <= target else "⚠️" if target else "ℹ️"
+                status = "[OK]" if target and latency <= target else "[WARN]" if target else "ℹ[EMOJI]"
                 target_info = f" (target: {target}ms)" if target else ""
                 perf_logger.info(f"   {status} {component}: {latency:.1f}ms{target_info}")
             
@@ -176,7 +176,7 @@ class PerformanceMonitor:
             self._check_performance_alerts(breakdown)
             
         except Exception as e:
-            perf_logger.error(f"❌ Failed to log latency breakdown: {e}")
+            perf_logger.error(f"[ERROR] Failed to log latency breakdown: {e}")
     
     def check_performance_targets(self) -> Dict[str, bool]:
         """
@@ -218,7 +218,7 @@ class PerformanceMonitor:
             return results
             
         except Exception as e:
-            perf_logger.error(f"❌ Failed to check performance targets: {e}")
+            perf_logger.error(f"[ERROR] Failed to check performance targets: {e}")
             return {"error": str(e)}
     
     def _update_statistics(self, timing_op: TimingOperation):
@@ -243,7 +243,7 @@ class PerformanceMonitor:
                     self.stats["p99_latency_ms"] = sorted_durations[int(len(sorted_durations) * 0.99)]
             
         except Exception as e:
-            perf_logger.error(f"❌ Failed to update statistics: {e}")
+            perf_logger.error(f"[ERROR] Failed to update statistics: {e}")
     
     def _check_performance_alerts(self, breakdown: LatencyBreakdown):
         """Check for performance alerts and warnings"""
@@ -251,7 +251,7 @@ class PerformanceMonitor:
             # Check consecutive failures
             if self.consecutive_failures >= self.alert_thresholds["consecutive_failures"]:
                 perf_logger.warning(
-                    f"🚨 PERFORMANCE ALERT: {self.consecutive_failures} consecutive operations "
+                    f"[EMOJI] PERFORMANCE ALERT: {self.consecutive_failures} consecutive operations "
                     f"exceeded target latency ({self.targets['total_end_to_end_ms']}ms)"
                 )
             
@@ -260,31 +260,31 @@ class PerformanceMonitor:
                 # Establish baseline from first 10 operations
                 baseline_ops = list(self.latency_history)[:10]
                 self.baseline_latency_ms = statistics.mean([op.total_latency_ms for op in baseline_ops])
-                perf_logger.info(f"📊 Baseline latency established: {self.baseline_latency_ms:.1f}ms")
+                perf_logger.info(f"[STATS] Baseline latency established: {self.baseline_latency_ms:.1f}ms")
             
             if self.baseline_latency_ms and breakdown.total_latency_ms > 0:
                 degradation_ratio = breakdown.total_latency_ms / self.baseline_latency_ms
                 if degradation_ratio >= self.alert_thresholds["degradation_threshold"]:
                     perf_logger.warning(
-                        f"🚨 PERFORMANCE DEGRADATION: Current latency ({breakdown.total_latency_ms:.1f}ms) "
+                        f"[EMOJI] PERFORMANCE DEGRADATION: Current latency ({breakdown.total_latency_ms:.1f}ms) "
                         f"is {degradation_ratio:.1f}x baseline ({self.baseline_latency_ms:.1f}ms)"
                     )
             
             # Check individual component targets
             if breakdown.voxtral_processing_ms > self.targets["voxtral_processing_ms"]:
                 perf_logger.warning(
-                    f"⚠️ Voxtral processing exceeded target: {breakdown.voxtral_processing_ms:.1f}ms "
+                    f"[WARN] Voxtral processing exceeded target: {breakdown.voxtral_processing_ms:.1f}ms "
                     f"(target: {self.targets['voxtral_processing_ms']}ms)"
                 )
             
             if breakdown.kokoro_generation_ms > self.targets["kokoro_generation_ms"]:
                 perf_logger.warning(
-                    f"⚠️ Kokoro generation exceeded target: {breakdown.kokoro_generation_ms:.1f}ms "
+                    f"[WARN] Kokoro generation exceeded target: {breakdown.kokoro_generation_ms:.1f}ms "
                     f"(target: {self.targets['kokoro_generation_ms']}ms)"
                 )
             
         except Exception as e:
-            perf_logger.error(f"❌ Failed to check performance alerts: {e}")
+            perf_logger.error(f"[ERROR] Failed to check performance alerts: {e}")
     
     def get_performance_summary(self) -> Dict[str, Any]:
         """Get comprehensive performance summary"""
@@ -313,7 +313,7 @@ class PerformanceMonitor:
                 return summary
                 
         except Exception as e:
-            perf_logger.error(f"❌ Failed to get performance summary: {e}")
+            perf_logger.error(f"[ERROR] Failed to get performance summary: {e}")
             return {"error": str(e)}
     
     def get_optimization_recommendations(self) -> List[str]:
@@ -336,21 +336,21 @@ class PerformanceMonitor:
             # Voxtral optimization
             if avg_voxtral > self.targets["voxtral_processing_ms"]:
                 recommendations.append(
-                    f"🎙️ Voxtral processing is slow ({avg_voxtral:.1f}ms avg). "
+                    f"[VAD] Voxtral processing is slow ({avg_voxtral:.1f}ms avg). "
                     "Consider: reducing audio chunk size, optimizing VAD settings, or using faster GPU."
                 )
 
             # Kokoro optimization
             if avg_kokoro > self.targets["kokoro_generation_ms"]:
                 recommendations.append(
-                    f"🎵 Kokoro generation is slow ({avg_kokoro:.1f}ms avg). "
+                    f"[AUDIO] Kokoro generation is slow ({avg_kokoro:.1f}ms avg). "
                     "Consider: reducing voice complexity, optimizing speed settings, or using faster GPU."
                 )
             
             # Audio conversion optimization
             if avg_conversion > self.targets["audio_conversion_ms"]:
                 recommendations.append(
-                    f"🔧 Audio conversion is slow ({avg_conversion:.1f}ms avg). "
+                    f"[CONFIG] Audio conversion is slow ({avg_conversion:.1f}ms avg). "
                     "Consider: optimizing SNAC processing, using GPU acceleration, or reducing audio quality."
                 )
             
@@ -358,24 +358,24 @@ class PerformanceMonitor:
             success_rate = self.stats["operations_within_target"] / max(self.stats["total_operations"], 1)
             if success_rate < self.alert_thresholds["success_rate_threshold"]:
                 recommendations.append(
-                    f"📊 Overall success rate is low ({success_rate:.1%}). "
+                    f"[STATS] Overall success rate is low ({success_rate:.1%}). "
                     "Consider: increasing performance targets, optimizing hardware, or reducing workload."
                 )
             
             # Memory optimization
             if self.consecutive_failures > 0:
                 recommendations.append(
-                    "🧠 Recent performance issues detected. "
+                    "[BRAIN] Recent performance issues detected. "
                     "Consider: clearing GPU memory, restarting models, or checking system resources."
                 )
             
             if not recommendations:
-                recommendations.append("✅ Performance is within targets. No optimizations needed.")
+                recommendations.append("[OK] Performance is within targets. No optimizations needed.")
             
             return recommendations
             
         except Exception as e:
-            perf_logger.error(f"❌ Failed to generate recommendations: {e}")
+            perf_logger.error(f"[ERROR] Failed to generate recommendations: {e}")
             return [f"Error generating recommendations: {str(e)}"]
     
     def reset_statistics(self):
@@ -399,7 +399,7 @@ class PerformanceMonitor:
             self.consecutive_failures = 0
             self.baseline_latency_ms = None
         
-        perf_logger.info("📊 Performance statistics reset")
+        perf_logger.info("[STATS] Performance statistics reset")
 
 # Global performance monitor instance
 performance_monitor = PerformanceMonitor()

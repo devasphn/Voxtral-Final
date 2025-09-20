@@ -81,7 +81,7 @@ class StreamingCoordinator:
             except asyncio.QueueEmpty:
                 break
         
-        streaming_logger.info(f"🎙️ Started streaming session: {session_id}")
+        streaming_logger.info(f"[VAD] Started streaming session: {session_id}")
         return session_id
     
     async def process_voxtral_stream(self, voxtral_stream: AsyncGenerator) -> AsyncGenerator[StreamingChunk, None]:
@@ -89,7 +89,7 @@ class StreamingCoordinator:
         Process streaming tokens from Voxtral and coordinate TTS generation
         """
         if self.state != StreamingState.LISTENING:
-            streaming_logger.warning(f"⚠️ Cannot process stream in state: {self.state}")
+            streaming_logger.warning(f"[WARN] Cannot process stream in state: {self.state}")
             return
         
         self.state = StreamingState.PROCESSING
@@ -101,12 +101,12 @@ class StreamingCoordinator:
             async for token_data in voxtral_stream:
                 # Enhanced error handling for token data
                 if not isinstance(token_data, dict):
-                    streaming_logger.warning(f"⚠️ Invalid token data type: {type(token_data)}")
+                    streaming_logger.warning(f"[WARN] Invalid token data type: {type(token_data)}")
                     continue
 
                 # Check for interruption
                 if self.interruption_detected:
-                    streaming_logger.info(f"🛑 Stream interrupted for session {self.current_session_id}")
+                    streaming_logger.info(f"[EMOJI] Stream interrupted for session {self.current_session_id}")
                     yield StreamingChunk(
                         type='interrupted',
                         content={'reason': 'user_interruption'},
@@ -128,7 +128,7 @@ class StreamingCoordinator:
                                 'word_count': token_data.get('word_count', 0)
                             })
                         except Exception as buffer_error:
-                            streaming_logger.error(f"❌ Word buffer error: {buffer_error}")
+                            streaming_logger.error(f"[ERROR] Word buffer error: {buffer_error}")
                             continue
 
                         # Dynamic TTS triggering based on content and timing
@@ -153,7 +153,7 @@ class StreamingCoordinator:
                             try:
                                 combined_text = ' '.join(word['text'] for word in words_for_tts if isinstance(word.get('text'), str))
                             except Exception as combine_error:
-                                streaming_logger.error(f"❌ Text combination error: {combine_error}")
+                                streaming_logger.error(f"[ERROR] Text combination error: {combine_error}")
                                 continue
                             
                             # Track first word latency
@@ -161,7 +161,7 @@ class StreamingCoordinator:
                                 first_word_latency = (time.time() - session_start_time) * 1000
                                 self.performance_metrics['first_word_latency'].append(first_word_latency)
                                 first_word_sent = True
-                                streaming_logger.info(f"⚡ First words ready in {first_word_latency:.1f}ms: '{combined_text}'")
+                                streaming_logger.info(f"[FAST] First words ready in {first_word_latency:.1f}ms: '{combined_text}'")
                             
                             # Send words for TTS
                             chunk = StreamingChunk(
@@ -237,7 +237,7 @@ class StreamingCoordinator:
                     break
                 
                 elif token_data.get('type') == 'error':
-                    streaming_logger.error(f"❌ Voxtral stream error: {token_data.get('error')}")
+                    streaming_logger.error(f"[ERROR] Voxtral stream error: {token_data.get('error')}")
                     yield StreamingChunk(
                         type='error',
                         content={'error': token_data.get('error')},
@@ -247,8 +247,8 @@ class StreamingCoordinator:
                     break
         
         except Exception as e:
-            streaming_logger.error(f"❌ Error processing Voxtral stream: {e}")
-            streaming_logger.error(f"❌ Error details: {type(e).__name__}: {str(e)}")
+            streaming_logger.error(f"[ERROR] Error processing Voxtral stream: {e}")
+            streaming_logger.error(f"[ERROR] Error details: {type(e).__name__}: {str(e)}")
 
             # Enhanced error reporting
             yield StreamingChunk(
@@ -276,7 +276,7 @@ class StreamingCoordinator:
         """Handle user interruption - cancel ongoing TTS and reset state"""
         interruption_start = time.time()
         
-        streaming_logger.info(f"🛑 Interruption detected from {interruption_source}")
+        streaming_logger.info(f"[EMOJI] Interruption detected from {interruption_source}")
         self.interruption_detected = True
         self.state = StreamingState.INTERRUPTED
         
@@ -284,7 +284,7 @@ class StreamingCoordinator:
         for task in list(self.active_tts_tasks):
             if not task.done():
                 task.cancel()
-                streaming_logger.debug(f"🛑 Cancelled TTS task: {task}")
+                streaming_logger.debug(f"[EMOJI] Cancelled TTS task: {task}")
         
         self.active_tts_tasks.clear()
         
@@ -300,7 +300,7 @@ class StreamingCoordinator:
         response_time = (time.time() - interruption_start) * 1000
         self.performance_metrics['interruption_response_time'].append(response_time)
         
-        streaming_logger.info(f"✅ Interruption handled in {response_time:.1f}ms")
+        streaming_logger.info(f"[OK] Interruption handled in {response_time:.1f}ms")
         
         # Callback for external handling
         if self.on_interruption:
@@ -344,7 +344,7 @@ class StreamingCoordinator:
         self.on_interruption = on_interruption
         self.on_session_complete = on_session_complete
         
-        streaming_logger.info("✅ Streaming callbacks registered")
+        streaming_logger.info("[OK] Streaming callbacks registered")
 
 # Global streaming coordinator instance
 streaming_coordinator = StreamingCoordinator()

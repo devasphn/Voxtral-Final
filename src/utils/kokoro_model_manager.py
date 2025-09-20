@@ -63,7 +63,7 @@ class KokoroModelManager:
 
         # Initialize cache directory (will be set after download)
         self.actual_cache_dir = None
-        kokoro_manager_logger.info(f"🎵 Kokoro Model Manager initialized for repo: {self.repo_id}")
+        kokoro_manager_logger.info(f"[AUDIO] Kokoro Model Manager initialized for repo: {self.repo_id}")
     
     def check_model_availability(self) -> Dict[str, bool]:
         """
@@ -102,7 +102,7 @@ class KokoroModelManager:
                 allow_patterns=["*.pth", "voices/*.pt"]
             )
             self.actual_cache_dir = cache_path
-            kokoro_manager_logger.info(f"📁 Found cache directory: {cache_path}")
+            kokoro_manager_logger.info(f"[FILE] Found cache directory: {cache_path}")
         except Exception as e:
             kokoro_manager_logger.debug(f"Cache directory not found: {e}")
             self.actual_cache_dir = None
@@ -143,7 +143,7 @@ class KokoroModelManager:
                     if 0.8 <= size_ratio <= 1.2:
                         integrity[file_key] = True
                     else:
-                        kokoro_manager_logger.warning(f"⚠️ File size mismatch for {file_key}: {file_size} vs expected {expected_size}")
+                        kokoro_manager_logger.warning(f"[WARN] File size mismatch for {file_key}: {file_size} vs expected {expected_size}")
                         integrity[file_key] = False
                 else:
                     # If no expected size, just check that file exists and is not empty
@@ -153,13 +153,13 @@ class KokoroModelManager:
                 if file_path.endswith('.pt'):
                     try:
                         torch.load(local_path, map_location='cpu')
-                        kokoro_manager_logger.debug(f"✅ PyTorch file verified: {file_key}")
+                        kokoro_manager_logger.debug(f"[OK] PyTorch file verified: {file_key}")
                     except Exception as e:
-                        kokoro_manager_logger.error(f"❌ PyTorch file corrupted: {file_key} - {e}")
+                        kokoro_manager_logger.error(f"[ERROR] PyTorch file corrupted: {file_key} - {e}")
                         integrity[file_key] = False
                         
             except Exception as e:
-                kokoro_manager_logger.error(f"❌ Error verifying {file_key}: {e}")
+                kokoro_manager_logger.error(f"[ERROR] Error verifying {file_key}: {e}")
                 integrity[file_key] = False
         
         return integrity
@@ -174,7 +174,7 @@ class KokoroModelManager:
         Returns:
             True if all files downloaded successfully, False otherwise
         """
-        kokoro_manager_logger.info("📥 Starting Kokoro model download...")
+        kokoro_manager_logger.info("[INPUT] Starting Kokoro model download...")
         
         try:
             # Check what's already available
@@ -186,16 +186,16 @@ class KokoroModelManager:
                 corrupted_files = [f for f, valid in integrity.items() if not valid]
                 
                 if not missing_files and not corrupted_files:
-                    kokoro_manager_logger.info("✅ All Kokoro model files already available and verified")
+                    kokoro_manager_logger.info("[OK] All Kokoro model files already available and verified")
                     return True
                 
                 if missing_files:
-                    kokoro_manager_logger.info(f"📋 Missing files: {missing_files}")
+                    kokoro_manager_logger.info(f"[EMOJI] Missing files: {missing_files}")
                 if corrupted_files:
-                    kokoro_manager_logger.info(f"🔧 Corrupted files to re-download: {corrupted_files}")
+                    kokoro_manager_logger.info(f"[CONFIG] Corrupted files to re-download: {corrupted_files}")
             
             # Download using huggingface_hub
-            kokoro_manager_logger.info(f"🌐 Downloading from repository: {self.repo_id}")
+            kokoro_manager_logger.info(f"[EMOJI] Downloading from repository: {self.repo_id}")
 
             start_time = time.time()
 
@@ -211,27 +211,27 @@ class KokoroModelManager:
             self.actual_cache_dir = local_dir
 
             download_time = time.time() - start_time
-            kokoro_manager_logger.info(f"📦 Model downloaded to: {local_dir}")
-            kokoro_manager_logger.info(f"⏱️ Download completed in {download_time:.2f}s")
+            kokoro_manager_logger.info(f"[EMOJI] Model downloaded to: {local_dir}")
+            kokoro_manager_logger.info(f"[TIME] Download completed in {download_time:.2f}s")
             
             # Verify the download
             integrity = self.verify_model_integrity()
             failed_files = [f for f, valid in integrity.items() if not valid]
             
             if failed_files:
-                kokoro_manager_logger.error(f"❌ Download verification failed for: {failed_files}")
+                kokoro_manager_logger.error(f"[ERROR] Download verification failed for: {failed_files}")
                 return False
             
-            kokoro_manager_logger.info("✅ All Kokoro model files downloaded and verified successfully!")
+            kokoro_manager_logger.info("[OK] All Kokoro model files downloaded and verified successfully!")
             return True
             
         except HfHubHTTPError as e:
-            kokoro_manager_logger.error(f"❌ HTTP error downloading model: {e}")
+            kokoro_manager_logger.error(f"[ERROR] HTTP error downloading model: {e}")
             return False
         except Exception as e:
-            kokoro_manager_logger.error(f"❌ Error downloading Kokoro model: {e}")
+            kokoro_manager_logger.error(f"[ERROR] Error downloading Kokoro model: {e}")
             import traceback
-            kokoro_manager_logger.error(f"❌ Full traceback: {traceback.format_exc()}")
+            kokoro_manager_logger.error(f"[ERROR] Full traceback: {traceback.format_exc()}")
             return False
     
     def get_model_status(self) -> Dict[str, any]:
@@ -279,12 +279,12 @@ class KokoroModelManager:
             import shutil
             if self.actual_cache_dir and os.path.exists(self.actual_cache_dir):
                 shutil.rmtree(self.actual_cache_dir)
-                kokoro_manager_logger.info(f"🧹 Cleaned up cache directory: {self.actual_cache_dir}")
+                kokoro_manager_logger.info(f"[CLEANUP] Cleaned up cache directory: {self.actual_cache_dir}")
                 self.actual_cache_dir = None
                 return True
             return True
         except Exception as e:
-            kokoro_manager_logger.error(f"❌ Error cleaning up cache: {e}")
+            kokoro_manager_logger.error(f"[ERROR] Error cleaning up cache: {e}")
             return False
     
     def get_voice_files(self) -> List[str]:

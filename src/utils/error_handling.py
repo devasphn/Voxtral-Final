@@ -109,7 +109,7 @@ class ErrorHandler:
             "success_count": 0,
             "attempt_count": 0
         }
-        error_logger.info(f"📝 Registered recovery strategy for '{error_pattern}' in category {category.value}")
+        error_logger.info(f"[NOTE] Registered recovery strategy for '{error_pattern}' in category {category.value}")
     
     async def handle_error(self, 
                           error: Exception, 
@@ -173,7 +173,7 @@ class ErrorHandler:
             }
             
         except Exception as handling_error:
-            error_logger.error(f"❌ Error handling failed: {handling_error}")
+            error_logger.error(f"[ERROR] Error handling failed: {handling_error}")
             return {
                 "error_handled": False,
                 "handling_error": str(handling_error),
@@ -214,13 +214,13 @@ class ErrorHandler:
     def _log_error(self, error_record: ErrorRecord):
         """Log error with appropriate level based on severity"""
         severity_emoji = {
-            ErrorSeverity.LOW: "ℹ️",
-            ErrorSeverity.MEDIUM: "⚠️",
-            ErrorSeverity.HIGH: "❌",
-            ErrorSeverity.CRITICAL: "🚨"
+            ErrorSeverity.LOW: "ℹ[EMOJI]",
+            ErrorSeverity.MEDIUM: "[WARN]",
+            ErrorSeverity.HIGH: "[ERROR]",
+            ErrorSeverity.CRITICAL: "[EMOJI]"
         }
         
-        emoji = severity_emoji.get(error_record.severity, "❓")
+        emoji = severity_emoji.get(error_record.severity, "[EMOJI]")
         
         log_message = (
             f"{emoji} {error_record.severity.value.upper()} ERROR "
@@ -258,7 +258,7 @@ class ErrorHandler:
             if not recovery_strategy:
                 return {"success": False, "reason": "No recovery strategy found"}
             
-            error_logger.info(f"🔧 Attempting recovery using strategy: {strategy_key}")
+            error_logger.info(f"[CONFIG] Attempting recovery using strategy: {strategy_key}")
             
             # Update attempt count
             recovery_strategy["attempt_count"] += 1
@@ -269,9 +269,9 @@ class ErrorHandler:
             
             if recovery_result.get("success", False):
                 recovery_strategy["success_count"] += 1
-                error_logger.info(f"✅ Recovery successful using strategy: {strategy_key}")
+                error_logger.info(f"[OK] Recovery successful using strategy: {strategy_key}")
             else:
-                error_logger.warning(f"❌ Recovery failed using strategy: {strategy_key}")
+                error_logger.warning(f"[ERROR] Recovery failed using strategy: {strategy_key}")
             
             return {
                 "success": recovery_result.get("success", False),
@@ -284,7 +284,7 @@ class ErrorHandler:
             }
             
         except Exception as recovery_error:
-            error_logger.error(f"❌ Recovery attempt failed: {recovery_error}")
+            error_logger.error(f"[ERROR] Recovery attempt failed: {recovery_error}")
             return {
                 "success": False,
                 "reason": f"Recovery attempt failed: {str(recovery_error)}"
@@ -293,7 +293,7 @@ class ErrorHandler:
     async def _recover_gpu_memory_error(self, error_record: ErrorRecord) -> Dict[str, Any]:
         """Recovery strategy for GPU memory errors"""
         try:
-            error_logger.info("🧹 Attempting GPU memory recovery...")
+            error_logger.info("[CLEANUP] Attempting GPU memory recovery...")
             
             # Import here to avoid circular imports
             import torch
@@ -333,7 +333,7 @@ class ErrorHandler:
     async def _recover_model_initialization_error(self, error_record: ErrorRecord) -> Dict[str, Any]:
         """Recovery strategy for model initialization errors"""
         try:
-            error_logger.info("🔄 Attempting model initialization recovery...")
+            error_logger.info("[EMOJI] Attempting model initialization recovery...")
             
             actions_taken = []
             
@@ -362,7 +362,7 @@ class ErrorHandler:
     async def _recover_performance_degradation(self, error_record: ErrorRecord) -> Dict[str, Any]:
         """Recovery strategy for performance degradation"""
         try:
-            error_logger.info("⚡ Attempting performance recovery...")
+            error_logger.info("[FAST] Attempting performance recovery...")
             
             actions_taken = []
             
@@ -387,7 +387,7 @@ class ErrorHandler:
     async def _recover_connection_error(self, error_record: ErrorRecord) -> Dict[str, Any]:
         """Recovery strategy for connection errors"""
         try:
-            error_logger.info("🔌 Attempting connection recovery...")
+            error_logger.info("[EMOJI] Attempting connection recovery...")
             
             # Wait and retry logic
             await asyncio.sleep(1.0)
@@ -455,7 +455,7 @@ class ErrorHandler:
         # Alert on high frequency patterns
         if pattern["frequency"] > 10:  # More than 10 errors per hour
             error_logger.warning(
-                f"🚨 High frequency error pattern detected: {error_key} "
+                f"[EMOJI] High frequency error pattern detected: {error_key} "
                 f"({pattern['count']} occurrences, {pattern['frequency']:.1f}/hour)"
             )
     
@@ -540,7 +540,7 @@ class ErrorHandler:
             "recovery_success_rate": 0.0,
             "recent_error_rate": 0.0
         }
-        error_logger.info("📊 Error history and statistics reset")
+        error_logger.info("[STATS] Error history and statistics reset")
 
 # Decorator for automatic error handling
 def handle_errors(severity: ErrorSeverity = ErrorSeverity.MEDIUM, 

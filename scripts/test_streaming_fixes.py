@@ -50,7 +50,7 @@ class StreamingFixesValidator:
     
     async def test_streaming_mode_activation(self) -> Dict[str, Any]:
         """Test 1: Verify streaming mode is properly activated"""
-        logger.info("🧪 Test 1: Streaming Mode Activation")
+        logger.info("[EMOJI] Test 1: Streaming Mode Activation")
         
         try:
             async with websockets.connect(self.server_url) as websocket:
@@ -68,7 +68,7 @@ class StreamingFixesValidator:
                 }
                 
                 await websocket.send(json.dumps(message))
-                logger.info("📤 Sent streaming mode request")
+                logger.info("[EMOJI] Sent streaming mode request")
                 
                 # Listen for streaming responses
                 streaming_detected = False
@@ -82,10 +82,10 @@ class StreamingFixesValidator:
                         
                         if data.get('type') == 'streaming_words':
                             streaming_detected = True
-                            logger.info(f"✅ Streaming words detected: {data.get('text')}")
+                            logger.info(f"[OK] Streaming words detected: {data.get('text')}")
                             break
                         elif data.get('type') == 'response':
-                            logger.info(f"📝 Regular response: {data.get('text')}")
+                            logger.info(f"[NOTE] Regular response: {data.get('text')}")
                             
                     except asyncio.TimeoutError:
                         continue
@@ -97,7 +97,7 @@ class StreamingFixesValidator:
                 }
                 
         except Exception as e:
-            logger.error(f"❌ Test 1 failed: {e}")
+            logger.error(f"[ERROR] Test 1 failed: {e}")
             return {
                 'test_name': 'streaming_mode_activation',
                 'passed': False,
@@ -106,7 +106,7 @@ class StreamingFixesValidator:
     
     async def test_numpy_float32_fix(self) -> Dict[str, Any]:
         """Test 2: Verify numpy.float32 iteration error is fixed"""
-        logger.info("🧪 Test 2: Numpy Float32 Fix")
+        logger.info("[EMOJI] Test 2: Numpy Float32 Fix")
         
         try:
             async with websockets.connect(self.server_url) as websocket:
@@ -123,7 +123,7 @@ class StreamingFixesValidator:
                 }
                 
                 await websocket.send(json.dumps(message))
-                logger.info("📤 Sent test for numpy.float32 fix")
+                logger.info("[EMOJI] Sent test for numpy.float32 fix")
                 
                 # Monitor for errors
                 error_detected = False
@@ -140,11 +140,11 @@ class StreamingFixesValidator:
                             error_msg = data.get('message', '')
                             if 'numpy.float32' in error_msg or 'not iterable' in error_msg:
                                 error_detected = True
-                                logger.error(f"❌ Numpy error still present: {error_msg}")
+                                logger.error(f"[ERROR] Numpy error still present: {error_msg}")
                                 break
                         elif data.get('type') in ['streaming_words', 'response']:
                             success_detected = True
-                            logger.info(f"✅ Processing successful: {data.get('text', '')[:50]}...")
+                            logger.info(f"[OK] Processing successful: {data.get('text', '')[:50]}...")
                             
                     except asyncio.TimeoutError:
                         continue
@@ -156,7 +156,7 @@ class StreamingFixesValidator:
                 }
                 
         except Exception as e:
-            logger.error(f"❌ Test 2 failed: {e}")
+            logger.error(f"[ERROR] Test 2 failed: {e}")
             return {
                 'test_name': 'numpy_float32_fix',
                 'passed': False,
@@ -165,7 +165,7 @@ class StreamingFixesValidator:
     
     async def test_long_token_generation(self) -> Dict[str, Any]:
         """Test 3: Verify longer token generation (50+ tokens instead of 4-5 words)"""
-        logger.info("🧪 Test 3: Long Token Generation")
+        logger.info("[EMOJI] Test 3: Long Token Generation")
         
         try:
             async with websockets.connect(self.server_url) as websocket:
@@ -182,7 +182,7 @@ class StreamingFixesValidator:
                 }
                 
                 await websocket.send(json.dumps(message))
-                logger.info("📤 Sent test for long token generation")
+                logger.info("[EMOJI] Sent test for long token generation")
                 
                 # Collect all generated text
                 total_text = ""
@@ -199,13 +199,13 @@ class StreamingFixesValidator:
                             text = data.get('text', '')
                             total_text += " " + text
                             word_count += len(text.split())
-                            logger.info(f"📝 Words received: {text} (total: {word_count} words)")
+                            logger.info(f"[NOTE] Words received: {text} (total: {word_count} words)")
                         elif data.get('type') == 'response':
                             text = data.get('text', '')
                             if not total_text:  # If no streaming words, use regular response
                                 total_text = text
                                 word_count = len(text.split())
-                            logger.info(f"📝 Final response: {text}")
+                            logger.info(f"[NOTE] Final response: {text}")
                             break
                             
                     except asyncio.TimeoutError:
@@ -222,7 +222,7 @@ class StreamingFixesValidator:
                 }
                 
         except Exception as e:
-            logger.error(f"❌ Test 3 failed: {e}")
+            logger.error(f"[ERROR] Test 3 failed: {e}")
             return {
                 'test_name': 'long_token_generation',
                 'passed': False,
@@ -231,7 +231,7 @@ class StreamingFixesValidator:
     
     async def test_performance_targets(self) -> Dict[str, Any]:
         """Test 4: Verify performance targets are being met"""
-        logger.info("🧪 Test 4: Performance Targets")
+        logger.info("[EMOJI] Test 4: Performance Targets")
         
         try:
             async with websockets.connect(self.server_url) as websocket:
@@ -265,13 +265,13 @@ class StreamingFixesValidator:
                         
                         if data.get('type') == 'streaming_words' and first_word_time is None:
                             first_word_time = (current_time - start_time) * 1000
-                            logger.info(f"⚡ First word latency: {first_word_time:.1f}ms")
+                            logger.info(f"[FAST] First word latency: {first_word_time:.1f}ms")
                         elif data.get('type') == 'streaming_audio' and first_audio_time is None:
                             first_audio_time = (current_time - start_time) * 1000
-                            logger.info(f"🎵 First audio latency: {first_audio_time:.1f}ms")
+                            logger.info(f"[AUDIO] First audio latency: {first_audio_time:.1f}ms")
                         elif data.get('type') == 'response':
                             total_end_time = (current_time - start_time) * 1000
-                            logger.info(f"🏁 Total latency: {total_end_time:.1f}ms")
+                            logger.info(f"[EMOJI] Total latency: {total_end_time:.1f}ms")
                             break
                             
                     except asyncio.TimeoutError:
@@ -286,25 +286,25 @@ class StreamingFixesValidator:
                     total_targets += 1
                     if first_word_time <= 100:
                         targets_met += 1
-                        details.append(f"✅ First word: {first_word_time:.1f}ms (target: 100ms)")
+                        details.append(f"[OK] First word: {first_word_time:.1f}ms (target: 100ms)")
                     else:
-                        details.append(f"❌ First word: {first_word_time:.1f}ms (target: 100ms)")
+                        details.append(f"[ERROR] First word: {first_word_time:.1f}ms (target: 100ms)")
                 
                 if first_audio_time is not None:
                     total_targets += 1
                     if first_audio_time <= 300:
                         targets_met += 1
-                        details.append(f"✅ First audio: {first_audio_time:.1f}ms (target: 300ms)")
+                        details.append(f"[OK] First audio: {first_audio_time:.1f}ms (target: 300ms)")
                     else:
-                        details.append(f"❌ First audio: {first_audio_time:.1f}ms (target: 300ms)")
+                        details.append(f"[ERROR] First audio: {first_audio_time:.1f}ms (target: 300ms)")
                 
                 if total_end_time is not None:
                     total_targets += 1
                     if total_end_time <= 2000:  # Relaxed target for testing
                         targets_met += 1
-                        details.append(f"✅ Total time: {total_end_time:.1f}ms (target: 2000ms)")
+                        details.append(f"[OK] Total time: {total_end_time:.1f}ms (target: 2000ms)")
                     else:
-                        details.append(f"❌ Total time: {total_end_time:.1f}ms (target: 2000ms)")
+                        details.append(f"[ERROR] Total time: {total_end_time:.1f}ms (target: 2000ms)")
                 
                 passed = targets_met >= (total_targets * 0.6)  # 60% of targets met
                 
@@ -315,7 +315,7 @@ class StreamingFixesValidator:
                 }
                 
         except Exception as e:
-            logger.error(f"❌ Test 4 failed: {e}")
+            logger.error(f"[ERROR] Test 4 failed: {e}")
             return {
                 'test_name': 'performance_targets',
                 'passed': False,
@@ -324,7 +324,7 @@ class StreamingFixesValidator:
     
     async def run_all_tests(self) -> Dict[str, Any]:
         """Run all validation tests"""
-        logger.info("🚀 Starting comprehensive streaming fixes validation...")
+        logger.info("[INIT] Starting comprehensive streaming fixes validation...")
         
         tests = [
             self.test_streaming_mode_activation,
@@ -342,15 +342,15 @@ class StreamingFixesValidator:
                 results.append(result)
                 if result['passed']:
                     passed_count += 1
-                    logger.info(f"✅ {result['test_name']}: PASSED")
+                    logger.info(f"[OK] {result['test_name']}: PASSED")
                 else:
-                    logger.error(f"❌ {result['test_name']}: FAILED - {result['details']}")
+                    logger.error(f"[ERROR] {result['test_name']}: FAILED - {result['details']}")
                     
                 # Wait between tests
                 await asyncio.sleep(2)
                 
             except Exception as e:
-                logger.error(f"❌ Test failed with exception: {e}")
+                logger.error(f"[ERROR] Test failed with exception: {e}")
                 results.append({
                     'test_name': 'unknown',
                     'passed': False,
@@ -370,7 +370,7 @@ class StreamingFixesValidator:
             'test_results': results
         }
         
-        logger.info(f"📊 VALIDATION SUMMARY:")
+        logger.info(f"[STATS] VALIDATION SUMMARY:")
         logger.info(f"   Total Tests: {total_tests}")
         logger.info(f"   Passed: {passed_count}")
         logger.info(f"   Failed: {total_tests - passed_count}")
@@ -391,14 +391,14 @@ async def main():
         with open('streaming_fixes_validation_results.json', 'w') as f:
             json.dump(results, f, indent=2)
         
-        logger.info("📁 Results saved to streaming_fixes_validation_results.json")
+        logger.info("[FILE] Results saved to streaming_fixes_validation_results.json")
         
         # Exit with appropriate code
         exit_code = 0 if results['overall_status'] == 'PASSED' else 1
         sys.exit(exit_code)
         
     except Exception as e:
-        logger.error(f"❌ Validation failed: {e}")
+        logger.error(f"[ERROR] Validation failed: {e}")
         sys.exit(1)
 
 if __name__ == "__main__":

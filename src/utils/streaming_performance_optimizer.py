@@ -9,7 +9,7 @@ import asyncio
 import time
 import logging
 from typing import Dict, Any, Optional, List
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 # Configure logging
 optimizer_logger = logging.getLogger('streaming_optimizer')
@@ -17,18 +17,11 @@ optimizer_logger = logging.getLogger('streaming_optimizer')
 @dataclass
 class PerformanceMetrics:
     """Performance metrics tracking for streaming optimization"""
-    first_word_latency: List[float]
-    word_to_audio_latency: List[float]
-    token_generation_speed: List[float]
-    memory_usage: List[float]
-    gpu_utilization: List[float]
-    
-    def __post_init__(self):
-        self.first_word_latency = []
-        self.word_to_audio_latency = []
-        self.token_generation_speed = []
-        self.memory_usage = []
-        self.gpu_utilization = []
+    first_word_latency: List[float] = field(default_factory=list)
+    word_to_audio_latency: List[float] = field(default_factory=list)
+    token_generation_speed: List[float] = field(default_factory=list)
+    memory_usage: List[float] = field(default_factory=list)
+    gpu_utilization: List[float] = field(default_factory=list)
 
 class StreamingPerformanceOptimizer:
     """
@@ -52,18 +45,18 @@ class StreamingPerformanceOptimizer:
         Apply cutting-edge optimizations for streaming inference
         """
         try:
-            optimizer_logger.info("🚀 Applying streaming optimizations to model...")
+            optimizer_logger.info("[INIT] Applying streaming optimizations to model...")
             
             # 1. Enable optimized attention mechanisms
             if hasattr(model, 'config'):
                 if hasattr(model.config, 'use_flash_attention_2'):
                     model.config.use_flash_attention_2 = True
-                    optimizer_logger.info("✅ FlashAttention2 enabled")
+                    optimizer_logger.info("[OK] FlashAttention2 enabled")
                 
                 # Enable gradient checkpointing for memory efficiency
                 if hasattr(model.config, 'use_cache'):
                     model.config.use_cache = True
-                    optimizer_logger.info("✅ KV cache enabled")
+                    optimizer_logger.info("[OK] KV cache enabled")
             
             # 2. Apply torch.compile with streaming-specific optimizations
             if torch.__version__ >= "2.0":
@@ -76,9 +69,9 @@ class StreamingPerformanceOptimizer:
                         fullgraph=False,  # Allow partial graphs for flexibility
                         backend="inductor"
                     )
-                    optimizer_logger.info("✅ Torch compile applied with max-autotune")
+                    optimizer_logger.info("[OK] Torch compile applied with max-autotune")
                 except Exception as compile_error:
-                    optimizer_logger.warning(f"⚠️ Torch compile failed: {compile_error}")
+                    optimizer_logger.warning(f"[WARN] Torch compile failed: {compile_error}")
             
             # 3. Enable CUDA optimizations
             if device == "cuda" and torch.cuda.is_available():
@@ -86,18 +79,18 @@ class StreamingPerformanceOptimizer:
                 torch.backends.cudnn.deterministic = False
                 torch.backends.cuda.matmul.allow_tf32 = True
                 torch.backends.cudnn.allow_tf32 = True
-                optimizer_logger.info("✅ CUDA optimizations enabled")
+                optimizer_logger.info("[OK] CUDA optimizations enabled")
             
             # 4. Set optimal inference mode
             model.eval()
             for param in model.parameters():
                 param.requires_grad = False
             
-            optimizer_logger.info("🎯 Model optimization completed")
+            optimizer_logger.info("[TARGET] Model optimization completed")
             return model
             
         except Exception as e:
-            optimizer_logger.error(f"❌ Model optimization failed: {e}")
+            optimizer_logger.error(f"[ERROR] Model optimization failed: {e}")
             return model
     
     def get_optimal_generation_config(self, target_length: int = 50) -> Dict[str, Any]:
@@ -141,10 +134,10 @@ class StreamingPerformanceOptimizer:
                 # Enable memory pool
                 torch.cuda.memory.set_per_process_memory_fraction(0.9)
                 
-                optimizer_logger.info("✅ GPU memory optimized")
+                optimizer_logger.info("[OK] GPU memory optimized")
                 
         except Exception as e:
-            optimizer_logger.warning(f"⚠️ Memory optimization failed: {e}")
+            optimizer_logger.warning(f"[WARN] Memory optimization failed: {e}")
     
     def track_performance(self, metric_type: str, value: float) -> None:
         """
@@ -160,7 +153,7 @@ class StreamingPerformanceOptimizer:
                     setattr(self.metrics, metric_type, metric_list[-100:])
                     
         except Exception as e:
-            optimizer_logger.warning(f"⚠️ Performance tracking failed: {e}")
+            optimizer_logger.warning(f"[WARN] Performance tracking failed: {e}")
     
     def get_performance_analysis(self) -> Dict[str, Any]:
         """
@@ -197,7 +190,7 @@ class StreamingPerformanceOptimizer:
                 }
             
         except Exception as e:
-            optimizer_logger.error(f"❌ Performance analysis failed: {e}")
+            optimizer_logger.error(f"[ERROR] Performance analysis failed: {e}")
         
         return analysis
     
@@ -212,32 +205,32 @@ class StreamingPerformanceOptimizer:
             # First word latency suggestions
             if 'first_word_latency' in analysis and not analysis['first_word_latency']['meets_target']:
                 suggestions.extend([
-                    "🚀 Install FlashAttention2: pip install flash-attn --no-build-isolation",
-                    "⚡ Reduce model compilation overhead with warmup runs",
-                    "🎯 Optimize generation parameters for faster first token",
-                    "💾 Implement KV cache precomputation"
+                    "[INIT] Install FlashAttention2: pip install flash-attn --no-build-isolation",
+                    "[FAST] Reduce model compilation overhead with warmup runs",
+                    "[TARGET] Optimize generation parameters for faster first token",
+                    "[FLOPPY] Implement KV cache precomputation"
                 ])
             
             # Word-to-audio latency suggestions
             if 'word_to_audio_latency' in analysis and not analysis['word_to_audio_latency']['meets_target']:
                 suggestions.extend([
-                    "🎵 Use streaming TTS with smaller chunk sizes",
-                    "⚡ Implement parallel TTS processing",
-                    "🔧 Optimize audio preprocessing pipeline",
-                    "📊 Use lower precision audio formats"
+                    "[AUDIO] Use streaming TTS with smaller chunk sizes",
+                    "[FAST] Implement parallel TTS processing",
+                    "[CONFIG] Optimize audio preprocessing pipeline",
+                    "[STATS] Use lower precision audio formats"
                 ])
             
             # Token generation speed suggestions
             if 'token_generation_speed' in analysis and not analysis['token_generation_speed']['meets_target']:
                 suggestions.extend([
-                    "🧠 Use smaller, specialized models for streaming",
-                    "⚡ Implement speculative decoding",
-                    "🎯 Optimize attention mechanisms",
-                    "💻 Use tensor parallelism for larger models"
+                    "[BRAIN] Use smaller, specialized models for streaming",
+                    "[FAST] Implement speculative decoding",
+                    "[TARGET] Optimize attention mechanisms",
+                    "[LAPTOP] Use tensor parallelism for larger models"
                 ])
             
         except Exception as e:
-            optimizer_logger.error(f"❌ Optimization suggestions failed: {e}")
+            optimizer_logger.error(f"[ERROR] Optimization suggestions failed: {e}")
         
         return suggestions
 

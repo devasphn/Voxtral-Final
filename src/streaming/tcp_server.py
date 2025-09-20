@@ -65,25 +65,25 @@ class TCPStreamingServer:
                 # Initialize audio processor
                 if AudioProcessor:
                     self.audio_processor = AudioProcessor()
-                    logger.info("✅ TCP server audio processor initialized with VAD")
+                    logger.info("[OK] TCP server audio processor initialized with VAD")
                 else:
-                    logger.error("❌ AudioProcessor not available - cannot start TCP server")
+                    logger.error("[ERROR] AudioProcessor not available - cannot start TCP server")
                     raise RuntimeError("AudioProcessor not available")
                 
                 # Initialize Voxtral model if available
                 if voxtral_model and not voxtral_model.is_initialized:
-                    logger.info("🚀 Initializing Voxtral model for TCP server...")
+                    logger.info("[INIT] Initializing Voxtral model for TCP server...")
                     await voxtral_model.initialize()
-                    logger.info("✅ Voxtral model initialized for TCP server")
+                    logger.info("[OK] Voxtral model initialized for TCP server")
                 elif not voxtral_model:
-                    logger.error("❌ Voxtral model not available - cannot start TCP server")
+                    logger.error("[ERROR] Voxtral model not available - cannot start TCP server")
                     raise RuntimeError("Voxtral model not available")
                 
                 self.initialized = True
-                logger.info("🎉 TCP server components fully initialized")
+                logger.info("[SUCCESS] TCP server components fully initialized")
                 
         except Exception as e:
-            logger.error(f"❌ Failed to initialize TCP server components: {e}")
+            logger.error(f"[ERROR] Failed to initialize TCP server components: {e}")
             raise
     
     async def send_response(self, writer: asyncio.StreamWriter, response_data: Dict[str, Any]):
@@ -99,7 +99,7 @@ class TCPStreamingServer:
             await writer.drain()
             
         except Exception as e:
-            logger.error(f"❌ Error sending TCP response: {e}")
+            logger.error(f"[ERROR] Error sending TCP response: {e}")
     
     async def read_message(self, reader: asyncio.StreamReader) -> Dict[str, Any]:
         """Read a message from TCP client"""
@@ -122,10 +122,10 @@ class TCPStreamingServer:
             logger.debug("Client disconnected during read")
             raise ConnectionResetError("Client disconnected")
         except json.JSONDecodeError as e:
-            logger.error(f"❌ Invalid JSON from TCP client: {e}")
+            logger.error(f"[ERROR] Invalid JSON from TCP client: {e}")
             raise
         except Exception as e:
-            logger.error(f"❌ Error reading TCP message: {e}")
+            logger.error(f"[ERROR] Error reading TCP message: {e}")
             raise
     
     async def handle_audio_stream(self, writer: asyncio.StreamWriter, data: Dict[str, Any]):
@@ -155,9 +155,9 @@ class TCPStreamingServer:
             try:
                 audio_bytes = base64.b64decode(audio_b64)
                 audio_array = np.frombuffer(audio_bytes, dtype=np.float32)
-                logger.debug(f"📊 TCP audio decoded: {len(audio_array)} samples")
+                logger.debug(f"[STATS] TCP audio decoded: {len(audio_array)} samples")
             except Exception as e:
-                logger.error(f"❌ TCP audio decoding error: {e}")
+                logger.error(f"[ERROR] TCP audio decoding error: {e}")
                 await self.send_response(writer, {
                     "type": "error",
                     "message": f"Audio decoding error: {str(e)}"
@@ -167,7 +167,7 @@ class TCPStreamingServer:
             # CRITICAL: Apply VAD validation first
             if not self.audio_processor.validate_realtime_chunk(audio_array, chunk_id=f"tcp_{self.total_requests}"):
                 self.vad_filtered_requests += 1
-                logger.debug(f"🔇 TCP request {self.total_requests}: Filtered by VAD (silent/noise)")
+                logger.debug(f"[MUTE] TCP request {self.total_requests}: Filtered by VAD (silent/noise)")
                 
                 # Send empty response for silence - don't process
                 await self.send_response(writer, {
@@ -185,7 +185,7 @@ class TCPStreamingServer:
                 return
             
             # Audio contains speech - proceed with processing
-            logger.info(f"🎙️ TCP request {self.total_requests}: Speech detected, processing...")
+            logger.info(f"[VAD] TCP request {self.total_requests}: Speech detected, processing...")
             
             # Preprocess audio
             try:
@@ -194,7 +194,7 @@ class TCPStreamingServer:
                     chunk_id=f"tcp_{self.total_requests}"
                 )
             except Exception as e:
-                logger.error(f"❌ TCP audio preprocessing error: {e}")
+                logger.error(f"[ERROR] TCP audio preprocessing error: {e}")
                 await self.send_response(writer, {
                     "type": "error",
                     "message": f"Audio preprocessing error: {str(e)}"
@@ -219,15 +219,15 @@ class TCPStreamingServer:
                     processing_time = result['processing_time_ms']
                     self.successful_requests += 1
                     
-                    logger.info(f"✅ TCP request {self.total_requests}: Success - '{response_text[:50]}...'")
+                    logger.info(f"[OK] TCP request {self.total_requests}: Success - '{response_text[:50]}...'")
                 else:
                     # Model detected silence or returned empty response
                     response_text = ""
                     processing_time = result.get('processing_time_ms', (time.time() - start_time) * 1000)
-                    logger.debug(f"🔇 TCP request {self.total_requests}: Model detected silence")
+                    logger.debug(f"[MUTE] TCP request {self.total_requests}: Model detected silence")
                     
             except Exception as e:
-                logger.error(f"❌ TCP Voxtral processing error: {e}")
+                logger.error(f"[ERROR] TCP Voxtral processing error: {e}")
                 response_text = "Processing error"
                 processing_time = (time.time() - start_time) * 1000
             
@@ -247,10 +247,10 @@ class TCPStreamingServer:
                 }
             })
             
-            logger.debug(f"📊 TCP processing completed in {processing_time:.1f}ms")
+            logger.debug(f"[STATS] TCP processing completed in {processing_time:.1f}ms")
             
         except Exception as e:
-            logger.error(f"❌ Error processing TCP audio stream: {e}")
+            logger.error(f"[ERROR] Error processing TCP audio stream: {e}")
             await self.send_response(writer, {
                 "type": "error",
                 "message": f"Processing error: {str(e)}"
@@ -259,7 +259,7 @@ class TCPStreamingServer:
     async def handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         """Handle individual TCP client connection"""
         client_addr = writer.get_extra_info('peername')
-        logger.info(f"🔗 TCP client connected: {client_addr}")
+        logger.info(f"[EMOJI] TCP client connected: {client_addr}")
         
         self.clients.add(writer)
         
@@ -318,13 +318,13 @@ class TCPStreamingServer:
                         })
                         
                 except asyncio.TimeoutError:
-                    logger.debug(f"🕐 TCP client timeout: {client_addr}")
+                    logger.debug(f"[EMOJI] TCP client timeout: {client_addr}")
                     break
                     
         except ConnectionResetError:
-            logger.debug(f"🔌 TCP client disconnected: {client_addr}")
+            logger.debug(f"[EMOJI] TCP client disconnected: {client_addr}")
         except Exception as e:
-            logger.error(f"❌ TCP client error {client_addr}: {e}")
+            logger.error(f"[ERROR] TCP client error {client_addr}: {e}")
             logger.debug(traceback.format_exc())
         finally:
             self.clients.discard(writer)
@@ -333,11 +333,11 @@ class TCPStreamingServer:
                 await writer.wait_closed()
             except:
                 pass
-            logger.info(f"🔌 TCP client {client_addr} connection closed")
+            logger.info(f"[EMOJI] TCP client {client_addr} connection closed")
     
     async def start_server(self):
         """Start the TCP streaming server"""
-        logger.info(f"🚀 Starting TCP server on {self.host}:{self.port}")
+        logger.info(f"[INIT] Starting TCP server on {self.host}:{self.port}")
         
         # Initialize components
         await self.initialize_components()
@@ -352,8 +352,8 @@ class TCPStreamingServer:
                 reuse_port=True      # Allow reuse of port
             )
             
-            logger.info(f"✅ TCP server running on {self.host}:{self.port}")
-            logger.info(f"🎙️ VAD-enabled streaming server ready for production")
+            logger.info(f"[OK] TCP server running on {self.host}:{self.port}")
+            logger.info(f"[VAD] VAD-enabled streaming server ready for production")
             
             # Keep server running
             async with server:
@@ -361,10 +361,10 @@ class TCPStreamingServer:
                 
         except OSError as e:
             if e.errno == 98:  # Address already in use
-                logger.error(f"❌ Port {self.port} is already in use. Please run cleanup.sh first.")
+                logger.error(f"[ERROR] Port {self.port} is already in use. Please run cleanup.sh first.")
                 raise
             else:
-                logger.error(f"❌ Failed to start TCP server: {e}")
+                logger.error(f"[ERROR] Failed to start TCP server: {e}")
                 raise
 
 async def main():
@@ -373,9 +373,9 @@ async def main():
     try:
         await server.start_server()
     except KeyboardInterrupt:
-        logger.info("🛑 TCP server shutdown requested")
+        logger.info("[EMOJI] TCP server shutdown requested")
     except Exception as e:
-        logger.error(f"❌ TCP server error: {e}")
+        logger.error(f"[ERROR] TCP server error: {e}")
         raise
 
 if __name__ == "__main__":

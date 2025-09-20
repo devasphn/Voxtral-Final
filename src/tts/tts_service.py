@@ -55,15 +55,15 @@ class TTSService:
     async def initialize(self):
         """Initialize the TTS service and Kokoro engine"""
         try:
-            tts_service_logger.info("🚀 Initializing TTS Service with Kokoro TTS...")
+            tts_service_logger.info("[INIT] Initializing TTS Service with Kokoro TTS...")
             if not success:
                 raise Exception("Kokoro TTS model initialization failed")
             self.is_initialized = True
-            tts_service_logger.info("✅ TTS Service initialized successfully")
+            tts_service_logger.info("[OK] TTS Service initialized successfully")
         except Exception as e:
-            tts_service_logger.error(f"❌ Failed to initialize TTS Service: {e}")
+            tts_service_logger.error(f"[ERROR] Failed to initialize TTS Service: {e}")
             # Don't raise the exception - allow the service to continue with degraded functionality
-            tts_service_logger.warning("⚠️ TTS Service will continue with limited functionality")
+            tts_service_logger.warning("[WARN] TTS Service will continue with limited functionality")
             self.is_initialized = False
     
     async def generate_speech_async(self, text: str, voice: str = None, 
@@ -84,15 +84,15 @@ class TTSService:
         # Map voice to Kokoro voice format
         kokoro_voice = map_voice_to_kokoro(voice)
 
-        tts_service_logger.info(f"🎵 Generating speech: '{text[:50]}...' with voice '{voice}' (mapped to Kokoro: '{kokoro_voice}')")
+        tts_service_logger.info(f"[AUDIO] Generating speech: '{text[:50]}...' with voice '{voice}' (mapped to Kokoro: '{kokoro_voice}')")
         
         # Try to initialize if not already done
         if not self.is_initialized:
-            tts_service_logger.warning("⚠️ TTS Service not initialized, attempting initialization...")
+            tts_service_logger.warning("[WARN] TTS Service not initialized, attempting initialization...")
             try:
                 await self.initialize()
             except Exception as e:
-                tts_service_logger.error(f"❌ Failed to initialize TTS during generation: {e}")
+                tts_service_logger.error(f"[ERROR] Failed to initialize TTS during generation: {e}")
                 return {
                     "success": False,
                     "error": "TTS Service initialization failed",
@@ -130,7 +130,7 @@ class TTSService:
             # Update statistics
             self._update_stats(processing_time, audio_duration, realtime_factor)
             
-            tts_service_logger.info(f"✅ Speech generated in {processing_time:.2f}s "
+            tts_service_logger.info(f"[OK] Speech generated in {processing_time:.2f}s "
                                   f"({realtime_factor:.2f}x realtime)")
             
             return {
@@ -149,7 +149,7 @@ class TTSService:
             }
             
         except Exception as e:
-            tts_service_logger.error(f"❌ Error generating speech: {e}")
+            tts_service_logger.error(f"[ERROR] Error generating speech: {e}")
             return {
                 "success": False,
                 "error": str(e),
@@ -163,14 +163,14 @@ class TTSService:
         Yields audio chunks as they are generated for immediate playback
         """
         if not self.is_initialized:
-            tts_service_logger.warning("⚠️ TTS Service not initialized, attempting initialization...")
+            tts_service_logger.warning("[WARN] TTS Service not initialized, attempting initialization...")
             await self.initialize()
 
         voice = voice or self.default_voice
         kokoro_voice = map_voice_to_kokoro(voice)
 
         try:
-            tts_service_logger.info(f"🎵 Starting streaming generation: '{text[:50]}...' with voice '{voice}' (mapped to Kokoro: '{kokoro_voice}')")
+            tts_service_logger.info(f"[AUDIO] Starting streaming generation: '{text[:50]}...' with voice '{voice}' (mapped to Kokoro: '{kokoro_voice}')")
 
             async for chunk_data in self.kokoro_model.synthesize_speech_streaming(text, kokoro_voice):
                 if chunk_data.get('error'):
@@ -194,7 +194,7 @@ class TTSService:
                 }
 
         except Exception as e:
-            tts_service_logger.error(f"❌ Streaming generation failed: {e}")
+            tts_service_logger.error(f"[ERROR] Streaming generation failed: {e}")
             yield {
                 "success": False,
                 "error": str(e),
@@ -215,7 +215,7 @@ class TTSService:
         kokoro_voice = map_voice_to_kokoro(voice)
 
         try:
-            tts_service_logger.info(f"🎵 Starting word stream processing with voice '{voice}' (Kokoro: '{kokoro_voice}')")
+            tts_service_logger.info(f"[AUDIO] Starting word stream processing with voice '{voice}' (Kokoro: '{kokoro_voice}')")
 
             word_count = 0
             async for words_text in word_stream:
@@ -223,7 +223,7 @@ class TTSService:
                     continue
 
                 word_count += 1
-                tts_service_logger.debug(f"🎵 Processing word chunk {word_count}: '{words_text}'")
+                tts_service_logger.debug(f"[AUDIO] Processing word chunk {word_count}: '{words_text}'")
 
                 # Generate TTS for this word chunk
                 async for chunk_data in self.kokoro_model.synthesize_speech_streaming(words_text, kokoro_voice):
@@ -251,10 +251,10 @@ class TTSService:
                         "source_text": words_text
                     }
 
-            tts_service_logger.info(f"✅ Word stream processing completed: {word_count} word chunks processed")
+            tts_service_logger.info(f"[OK] Word stream processing completed: {word_count} word chunks processed")
 
         except Exception as e:
-            tts_service_logger.error(f"❌ Word stream processing failed: {e}")
+            tts_service_logger.error(f"[ERROR] Word stream processing failed: {e}")
             yield {
                 "success": False,
                 "error": str(e),
@@ -321,11 +321,11 @@ class TTSService:
             raise RuntimeError("TTS Service not initialized")
         
         voice = voice or self.default_voice
-        tts_service_logger.info(f"🎵 Streaming speech generation for voice '{voice}'")
+        tts_service_logger.info(f"[AUDIO] Streaming speech generation for voice '{voice}'")
         
         # This would implement streaming token processing
         # For now, yield empty as placeholder
-        tts_service_logger.warning("⚠️ Speech streaming not yet implemented - placeholder")
+        tts_service_logger.warning("[WARN] Speech streaming not yet implemented - placeholder")
         yield b""  # Placeholder
     
     def validate_voice(self, voice: str) -> bool:

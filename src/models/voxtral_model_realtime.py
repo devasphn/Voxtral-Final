@@ -11,9 +11,9 @@ try:
     from transformers import VoxtralForConditionalGeneration, AutoProcessor
     VOXTRAL_AVAILABLE = True
 except ImportError:
-    from src.utils.compatibility import FallbackVoxtralModel
+    from src.utils.compatibility import FallbackVoxtralModel, FallbackAutoProcessor
     VoxtralForConditionalGeneration = FallbackVoxtralModel
-    AutoProcessor = None
+    AutoProcessor = FallbackAutoProcessor
     VOXTRAL_AVAILABLE = False
 
 import logging
@@ -121,21 +121,21 @@ class VoxtralModel:
                 # FlashAttention2 requires compute capability >= 8.0 for optimal performance
                 if major >= 8:
                     self.flash_attention_available = True
-                    realtime_logger.info(f"✅ FlashAttention2 available - GPU compute capability: {major}.{minor}")
+                    realtime_logger.info(f"[OK] FlashAttention2 available - GPU compute capability: {major}.{minor}")
                     return "flash_attention_2"
                 else:
-                    realtime_logger.info(f"💡 FlashAttention2 available but GPU compute capability ({major}.{minor}) < 8.0, using eager attention")
+                    realtime_logger.info(f"[IDEA] FlashAttention2 available but GPU compute capability ({major}.{minor}) < 8.0, using eager attention")
                     return "eager"
             else:
-                realtime_logger.info("💡 FlashAttention2 available but CUDA not available, using eager attention")
+                realtime_logger.info("[IDEA] FlashAttention2 available but CUDA not available, using eager attention")
                 return "eager"
                 
         except ImportError:
-            realtime_logger.info("💡 FlashAttention2 not installed, using eager attention")
-            realtime_logger.info("💡 To install: pip install flash-attn --no-build-isolation")
+            realtime_logger.info("[IDEA] FlashAttention2 not installed, using eager attention")
+            realtime_logger.info("[IDEA] To install: pip install flash-attn --no-build-isolation")
             return "eager"
         except Exception as e:
-            realtime_logger.warning(f"⚠️ FlashAttention2 check failed: {e}, using eager attention")
+            realtime_logger.warning(f"[WARN] FlashAttention2 check failed: {e}, using eager attention")
             return "eager"
     
     def _calculate_audio_energy(self, audio_data: np.ndarray) -> float:
@@ -160,22 +160,22 @@ class VoxtralModel:
             
             # Apply energy threshold
             if energy < self.silence_threshold:
-                realtime_logger.debug(f"🔇 Audio energy ({energy:.6f}) below silence threshold ({self.silence_threshold})")
+                realtime_logger.debug(f"[MUTE] Audio energy ({energy:.6f}) below silence threshold ({self.silence_threshold})")
                 return False
             
             # Apply minimum duration threshold
             if duration_s < self.min_speech_duration:
-                realtime_logger.debug(f"⏱️ Audio duration ({duration_s:.2f}s) below minimum speech duration ({self.min_speech_duration}s)")
+                realtime_logger.debug(f"[TIME] Audio duration ({duration_s:.2f}s) below minimum speech duration ({self.min_speech_duration}s)")
                 return False
             
             # Additional checks for speech-like characteristics
             # Check for spectral variation (speech has more variation than steady noise)
             spectral_variation = np.std(audio_data)
             if spectral_variation < self.silence_threshold * 0.5:
-                realtime_logger.debug(f"📊 Low spectral variation ({spectral_variation:.6f}), likely not speech")
+                realtime_logger.debug(f"[STATS] Low spectral variation ({spectral_variation:.6f}), likely not speech")
                 return False
             
-            realtime_logger.debug(f"🎙️ Speech detected - Energy: {energy:.6f}, Duration: {duration_s:.2f}s, Variation: {spectral_variation:.6f}")
+            realtime_logger.debug(f"[VAD] Speech detected - Energy: {energy:.6f}, Duration: {duration_s:.2f}s, Variation: {spectral_variation:.6f}")
             return True
             
         except Exception as e:
@@ -185,7 +185,7 @@ class VoxtralModel:
     async def initialize(self):
         """Initialize the Voxtral model with FIXED attention implementation handling"""
         try:
-            realtime_logger.info("🚀 Starting Voxtral model initialization for conversational streaming...")
+            realtime_logger.info("[INIT] Starting Voxtral model initialization for conversational streaming...")
             start_time = time.time()
 
             # ULTRA-LOW LATENCY: GPU memory optimization setup
@@ -196,16 +196,16 @@ class VoxtralModel:
                     # Enable memory pool for faster allocation
                     if hasattr(torch.cuda, 'memory_pool'):
                         torch.cuda.memory_pool.set_memory_fraction(0.95)
-                    realtime_logger.info("🚀 GPU memory optimization enabled")
+                    realtime_logger.info("[INIT] GPU memory optimization enabled")
                 except Exception as e:
-                    realtime_logger.warning(f"⚠️ GPU memory optimization failed: {e}")
-                    realtime_logger.info("💡 Continuing without GPU memory optimization...")
+                    realtime_logger.warning(f"[WARN] GPU memory optimization failed: {e}")
+                    realtime_logger.info("[IDEA] Continuing without GPU memory optimization...")
             elif self.device == "cuda" and not torch.cuda.is_available():
-                realtime_logger.warning("⚠️ CUDA device specified but CUDA not available, falling back to CPU")
+                realtime_logger.warning("[WARN] CUDA device specified but CUDA not available, falling back to CPU")
                 self.device = "cpu"
             
             # Load processor with authentication
-            realtime_logger.info(f"📥 Loading AutoProcessor from {config.model.name}")
+            realtime_logger.info(f"[INPUT] Loading AutoProcessor from {config.model.name}")
 
             processor_kwargs = {
                 "cache_dir": config.model.cache_dir,
@@ -216,20 +216,20 @@ class VoxtralModel:
             import os
             if os.getenv('HF_TOKEN'):
                 processor_kwargs["token"] = os.getenv('HF_TOKEN')
-                realtime_logger.info("🔑 Using HuggingFace authentication token for processor")
+                realtime_logger.info("[EMOJI] Using HuggingFace authentication token for processor")
 
             self.processor = AutoProcessor.from_pretrained(
                 config.model.name,
                 **processor_kwargs
             )
-            realtime_logger.info("✅ AutoProcessor loaded successfully")
+            realtime_logger.info("[OK] AutoProcessor loaded successfully")
             
             # FIXED: Determine attention implementation with proper detection
             attn_implementation = self._check_flash_attention_availability()
-            realtime_logger.info(f"🔧 Using attention implementation: {attn_implementation}")
+            realtime_logger.info(f"[CONFIG] Using attention implementation: {attn_implementation}")
             
             # Load model with FIXED attention settings
-            realtime_logger.info(f"📥 Loading Voxtral model from {config.model.name}")
+            realtime_logger.info(f"[INPUT] Loading Voxtral model from {config.model.name}")
             
             # FIXED: Updated model loading parameters for compatibility
             model_kwargs = {
@@ -248,23 +248,23 @@ class VoxtralModel:
             import os
             if os.getenv('HF_TOKEN'):
                 model_kwargs["token"] = os.getenv('HF_TOKEN')
-                realtime_logger.info("🔑 Using HuggingFace authentication token")
+                realtime_logger.info("[EMOJI] Using HuggingFace authentication token")
             
             try:
-                realtime_logger.info(f"🔄 Loading Voxtral model with dtype={self.torch_dtype}, attention={attn_implementation}")
+                realtime_logger.info(f"[EMOJI] Loading Voxtral model with dtype={self.torch_dtype}, attention={attn_implementation}")
                 self.model = VoxtralForConditionalGeneration.from_pretrained(
                     config.model.name,
                     **model_kwargs
                 )
-                realtime_logger.info(f"✅ Voxtral model loaded successfully with {attn_implementation} attention")
+                realtime_logger.info(f"[OK] Voxtral model loaded successfully with {attn_implementation} attention")
 
             except Exception as model_load_error:
-                realtime_logger.error(f"❌ Initial model loading failed: {model_load_error}")
+                realtime_logger.error(f"[ERROR] Initial model loading failed: {model_load_error}")
 
                 # ENHANCED: Multiple fallback strategies for robust loading
                 if attn_implementation != "eager":
-                    realtime_logger.warning(f"⚠️ Model loading with {attn_implementation} failed: {model_load_error}")
-                    realtime_logger.info("🔄 Retrying with eager attention as fallback...")
+                    realtime_logger.warning(f"[WARN] Model loading with {attn_implementation} failed: {model_load_error}")
+                    realtime_logger.info("[EMOJI] Retrying with eager attention as fallback...")
 
                     model_kwargs["attn_implementation"] = "eager"
                     try:
@@ -272,33 +272,33 @@ class VoxtralModel:
                             config.model.name,
                             **model_kwargs
                         )
-                        realtime_logger.info("✅ Voxtral model loaded successfully with eager attention fallback")
+                        realtime_logger.info("[OK] Voxtral model loaded successfully with eager attention fallback")
                     except Exception as eager_error:
-                        realtime_logger.error(f"❌ Eager attention fallback also failed: {eager_error}")
+                        realtime_logger.error(f"[ERROR] Eager attention fallback also failed: {eager_error}")
                         # Try without safetensors as final fallback
-                        realtime_logger.info("🔄 Trying final fallback without safetensors...")
+                        realtime_logger.info("[EMOJI] Trying final fallback without safetensors...")
                         model_kwargs["use_safetensors"] = False
                         self.model = VoxtralForConditionalGeneration.from_pretrained(
                             config.model.name,
                             **model_kwargs
                         )
-                        realtime_logger.info("✅ Model loaded successfully without safetensors")
+                        realtime_logger.info("[OK] Model loaded successfully without safetensors")
 
                 elif "safetensors" in str(model_load_error).lower() or "num" in str(model_load_error).lower():
-                    realtime_logger.warning(f"⚠️ Safetensors loading failed: {model_load_error}")
-                    realtime_logger.info("🔄 Retrying without safetensors...")
+                    realtime_logger.warning(f"[WARN] Safetensors loading failed: {model_load_error}")
+                    realtime_logger.info("[EMOJI] Retrying without safetensors...")
 
                     model_kwargs["use_safetensors"] = False
                     self.model = VoxtralForConditionalGeneration.from_pretrained(
                         config.model.name,
                         **model_kwargs
                     )
-                    realtime_logger.info("✅ Model loaded successfully without safetensors")
+                    realtime_logger.info("[OK] Model loaded successfully without safetensors")
 
                 else:
                     # Generic fallback - try with minimal parameters
-                    realtime_logger.warning(f"⚠️ Generic model loading error: {model_load_error}")
-                    realtime_logger.info("🔄 Trying minimal parameter fallback...")
+                    realtime_logger.warning(f"[WARN] Generic model loading error: {model_load_error}")
+                    realtime_logger.info("[EMOJI] Trying minimal parameter fallback...")
 
                     minimal_kwargs = {
                         "cache_dir": config.model.cache_dir,
@@ -317,16 +317,16 @@ class VoxtralModel:
                         config.model.name,
                         **minimal_kwargs
                     )
-                    realtime_logger.info("✅ Model loaded successfully with minimal parameters")
+                    realtime_logger.info("[OK] Model loaded successfully with minimal parameters")
             
             # Set model to evaluation mode
             self.model.eval()
-            realtime_logger.info("🔧 Model set to evaluation mode")
+            realtime_logger.info("[CONFIG] Model set to evaluation mode")
             
             # ULTRA-LOW LATENCY: Fixed torch.compile optimization (no mode/options conflict)
             if self.use_torch_compile and hasattr(torch, 'compile'):
                 try:
-                    realtime_logger.info("⚡ Attempting ULTRA-LOW LATENCY model compilation...")
+                    realtime_logger.info("[FAST] Attempting ULTRA-LOW LATENCY model compilation...")
 
                     # Set optimal compilation environment
                     import os
@@ -342,9 +342,9 @@ class VoxtralModel:
                             fullgraph=True,         # Compile entire graph
                             dynamic=False           # Static shapes for speed
                         )
-                        realtime_logger.info("✅ Model compiled with reduce-overhead mode + CUDA optimizations")
+                        realtime_logger.info("[OK] Model compiled with reduce-overhead mode + CUDA optimizations")
                     except Exception as mode_error:
-                        realtime_logger.warning(f"⚠️ Mode compilation failed: {mode_error}")
+                        realtime_logger.warning(f"[WARN] Mode compilation failed: {mode_error}")
 
                         # FIXED: Method 2 - Use options-based compilation (no mode conflict)
                         try:
@@ -358,36 +358,36 @@ class VoxtralModel:
                                         "max_autotune_gemm": True,
                                     }
                                 )
-                                realtime_logger.info("✅ Model compiled with CUDA-optimized options")
+                                realtime_logger.info("[OK] Model compiled with CUDA-optimized options")
                             else:
                                 # CPU fallback
                                 self.model = torch.compile(self.model)
-                                realtime_logger.info("✅ Model compiled with basic optimizations")
+                                realtime_logger.info("[OK] Model compiled with basic optimizations")
                         except Exception as options_error:
-                            realtime_logger.warning(f"⚠️ Options compilation failed: {options_error}")
+                            realtime_logger.warning(f"[WARN] Options compilation failed: {options_error}")
                             # Final fallback to basic compilation
                             self.model = torch.compile(self.model)
-                            realtime_logger.info("✅ Model compiled with basic optimizations")
+                            realtime_logger.info("[OK] Model compiled with basic optimizations")
 
                 except Exception as e:
-                    realtime_logger.warning(f"⚠️ All torch.compile attempts failed: {e}")
+                    realtime_logger.warning(f"[WARN] All torch.compile attempts failed: {e}")
                     try:
                         # Fallback to max-autotune mode
-                        realtime_logger.info("🔄 Falling back to max-autotune compilation mode...")
+                        realtime_logger.info("[EMOJI] Falling back to max-autotune compilation mode...")
                         self.model = torch.compile(self.model, mode="max-autotune")
-                        realtime_logger.info("✅ Model compiled with max-autotune optimizations")
+                        realtime_logger.info("[OK] Model compiled with max-autotune optimizations")
                     except Exception as e2:
-                        realtime_logger.warning(f"⚠️ Max-autotune compilation also failed: {e2}")
+                        realtime_logger.warning(f"[WARN] Max-autotune compilation also failed: {e2}")
                         try:
                             # Final fallback to default mode
-                            realtime_logger.info("🔄 Final fallback to default compilation mode...")
+                            realtime_logger.info("[EMOJI] Final fallback to default compilation mode...")
                             self.model = torch.compile(self.model, mode="default")
-                            realtime_logger.info("✅ Model compiled with default optimizations")
+                            realtime_logger.info("[OK] Model compiled with default optimizations")
                         except Exception as e3:
-                            realtime_logger.warning(f"⚠️ All compilation modes failed: {e3}")
-                            realtime_logger.info("💡 Continuing without torch.compile...")
+                            realtime_logger.warning(f"[WARN] All compilation modes failed: {e3}")
+                            realtime_logger.info("[IDEA] Continuing without torch.compile...")
             else:
-                realtime_logger.info("💡 torch.compile disabled or not available")
+                realtime_logger.info("[IDEA] torch.compile disabled or not available")
 
             # ULTRA-LOW LATENCY: CUDA Graphs and Memory Optimization
             if torch.cuda.is_available():
@@ -400,7 +400,7 @@ class VoxtralModel:
                 torch.cuda.empty_cache()
                 torch.cuda.set_per_process_memory_fraction(0.95)
 
-                realtime_logger.info("🚀 CUDA optimizations enabled for maximum performance")
+                realtime_logger.info("[INIT] CUDA optimizations enabled for maximum performance")
 
             # ULTRA-LOW LATENCY: Additional model optimizations
             if hasattr(self.model, 'generation_config'):
@@ -415,7 +415,7 @@ class VoxtralModel:
                 self.model.generation_config.repetition_penalty = 1.3  # Higher penalty for concise responses
                 self.model.generation_config.num_beams = 1  # No beam search for speed
                 self.model.generation_config.early_stopping = True  # Stop early when possible
-                realtime_logger.info("✅ Generation config optimized for ultra-low latency")
+                realtime_logger.info("[OK] Generation config optimized for ultra-low latency")
 
             # ULTRA-LOW LATENCY: Enable PyTorch 2.0+ optimizations
             if hasattr(torch.nn.functional, 'scaled_dot_product_attention') and self.use_scaled_dot_product_attention:
@@ -423,7 +423,7 @@ class VoxtralModel:
                 torch.backends.cuda.enable_flash_sdp(True)
                 torch.backends.cuda.enable_math_sdp(True)
                 torch.backends.cuda.enable_mem_efficient_sdp(True)
-                realtime_logger.info("✅ PyTorch 2.0+ scaled dot product attention optimizations enabled")
+                realtime_logger.info("[OK] PyTorch 2.0+ scaled dot product attention optimizations enabled")
 
             # ULTRA-LOW LATENCY: Set optimal inference settings
             if self.device == "cuda" and torch.cuda.is_available():
@@ -432,21 +432,21 @@ class VoxtralModel:
                     torch.backends.cudnn.deterministic = False  # Allow non-deterministic for speed
                     torch.backends.cuda.matmul.allow_tf32 = True  # Enable TF32 for speed
                     torch.backends.cudnn.allow_tf32 = True
-                    realtime_logger.info("✅ CUDA optimizations enabled for maximum performance")
+                    realtime_logger.info("[OK] CUDA optimizations enabled for maximum performance")
                 except Exception as e:
-                    realtime_logger.warning(f"⚠️ CUDA optimizations failed: {e}")
-                    realtime_logger.info("💡 Continuing without CUDA optimizations...")
+                    realtime_logger.warning(f"[WARN] CUDA optimizations failed: {e}")
+                    realtime_logger.info("[IDEA] Continuing without CUDA optimizations...")
             else:
-                realtime_logger.info("💡 CUDA not available, using CPU optimizations")
+                realtime_logger.info("[IDEA] CUDA not available, using CPU optimizations")
             
             self.is_initialized = True
             init_time = time.time() - start_time
-            realtime_logger.info(f"🎉 Voxtral model fully initialized in {init_time:.2f}s and ready for conversation!")
+            realtime_logger.info(f"[SUCCESS] Voxtral model fully initialized in {init_time:.2f}s and ready for conversation!")
             
         except Exception as e:
-            realtime_logger.error(f"❌ Failed to initialize Voxtral model: {e}")
+            realtime_logger.error(f"[ERROR] Failed to initialize Voxtral model: {e}")
             import traceback
-            realtime_logger.error(f"❌ Full error traceback: {traceback.format_exc()}")
+            realtime_logger.error(f"[ERROR] Full error traceback: {traceback.format_exc()}")
             raise
     
     async def process_realtime_chunk(self, audio_data: torch.Tensor, chunk_id: int, mode: str = "conversation", prompt: str = "") -> Dict[str, Any]:
@@ -458,7 +458,7 @@ class VoxtralModel:
         
         try:
             chunk_start_time = time.time()
-            realtime_logger.debug(f"🎵 Processing conversational chunk {chunk_id} with {len(audio_data)} samples")
+            realtime_logger.debug(f"[AUDIO] Processing conversational chunk {chunk_id} with {len(audio_data)} samples")
             
             # Convert tensor to numpy for VAD analysis
             audio_np = audio_data.detach().cpu().numpy().copy()
@@ -467,7 +467,7 @@ class VoxtralModel:
             
             # CRITICAL: Apply VAD before processing
             if not self._is_speech_detected(audio_np, duration_s):
-                realtime_logger.debug(f"🔇 Chunk {chunk_id} contains no speech - skipping processing")
+                realtime_logger.debug(f"[MUTE] Chunk {chunk_id} contains no speech - skipping processing")
                 return {
                     'response': '',  # Empty response for silence
                     'processing_time_ms': (time.time() - chunk_start_time) * 1000,
@@ -489,13 +489,13 @@ class VoxtralModel:
                 if not audio_data.data.is_contiguous():
                     audio_data = audio_data.contiguous()
                 
-                realtime_logger.debug(f"🔊 Audio stats for chunk {chunk_id}: length={len(audio_np)}, max_val={np.max(np.abs(audio_np)):.4f}")
+                realtime_logger.debug(f"[SPEAKER] Audio stats for chunk {chunk_id}: length={len(audio_np)}, max_val={np.max(np.abs(audio_np)):.4f}")
                 
                 with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp_file:
                     try:
                         # Write audio to temporary file
                         sf.write(tmp_file.name, audio_np, sample_rate)
-                        realtime_logger.debug(f"💾 Written chunk {chunk_id} to temporary file: {tmp_file.name}")
+                        realtime_logger.debug(f"[FLOPPY] Written chunk {chunk_id} to temporary file: {tmp_file.name}")
                         
                         # FIXED: Use standard Hugging Face VoxtralProcessor API
                         # Choose processing mode based on requirements
@@ -509,7 +509,7 @@ class VoxtralModel:
                                     ]
                                 }
                             ]
-                            realtime_logger.debug(f"🎙️ Using audio-only mode for speech-to-speech processing")
+                            realtime_logger.debug(f"[VAD] Using audio-only mode for speech-to-speech processing")
                         else:
                             # Audio + text mode for conversational AI
                             conversation_prompt = prompt or "You are a helpful AI assistant in a natural voice conversation. Listen carefully to what the person is saying and respond naturally, as if you're having a friendly chat. Keep your responses conversational, concise (1-2 sentences), and engaging. Respond directly to what they said without repeating their words back to them."
@@ -523,7 +523,7 @@ class VoxtralModel:
                                     ]
                                 }
                             ]
-                            realtime_logger.debug(f"🎙️ Using audio+text mode for conversational AI")
+                            realtime_logger.debug(f"[VAD] Using audio+text mode for conversational AI")
 
                         # Process inputs with correct VoxtralProcessor API
                         inputs = self.processor.apply_chat_template(conversation, return_tensors="pt")
@@ -535,7 +535,7 @@ class VoxtralModel:
                             inputs = {k: v.to(self.device) if hasattr(v, 'to') else v 
                                     for k, v in inputs.items()}
                         
-                        realtime_logger.debug(f"🚀 Starting inference for chunk {chunk_id}")
+                        realtime_logger.debug(f"[INIT] Starting inference for chunk {chunk_id}")
                         inference_start = time.time()
 
                         # ENHANCED: Generate response with timeout and real-time optimizations
@@ -596,13 +596,13 @@ class VoxtralModel:
 
                             # Check if we exceeded target time and log warning
                             if inference_time > 100:  # Target is 100ms
-                                realtime_logger.warning(f"⚠️ Inference for chunk {chunk_id} took {inference_time:.1f}ms (target: 100ms)")
+                                realtime_logger.warning(f"[WARN] Inference for chunk {chunk_id} took {inference_time:.1f}ms (target: 100ms)")
                             else:
-                                realtime_logger.debug(f"⚡ Inference completed for chunk {chunk_id} in {inference_time:.1f}ms")
+                                realtime_logger.debug(f"[FAST] Inference completed for chunk {chunk_id} in {inference_time:.1f}ms")
 
                         except Exception as e:
                             inference_time = (time.time() - inference_start) * 1000
-                            realtime_logger.error(f"❌ Inference failed for chunk {chunk_id} after {inference_time:.1f}ms: {e}")
+                            realtime_logger.error(f"[ERROR] Inference failed for chunk {chunk_id} after {inference_time:.1f}ms: {e}")
                             raise
                         
                         # Decode response
@@ -646,7 +646,7 @@ class VoxtralModel:
                         
                         # If response is too short or matches noise patterns, treat as silence
                         if len(cleaned_response) < 3 or any(noise in cleaned_response for noise in noise_responses):
-                            realtime_logger.debug(f"🔇 Filtering out noise response: '{cleaned_response}'")
+                            realtime_logger.debug(f"[MUTE] Filtering out noise response: '{cleaned_response}'")
                             return {
                                 'response': '',
                                 'processing_time_ms': total_processing_time,
@@ -660,7 +660,7 @@ class VoxtralModel:
                         if not cleaned_response:
                             cleaned_response = "[Audio processed]"
                         
-                        realtime_logger.info(f"✅ Chunk {chunk_id} processed in {total_processing_time:.1f}ms: '{cleaned_response[:50]}{'...' if len(cleaned_response) > 50 else ''}'")
+                        realtime_logger.info(f"[OK] Chunk {chunk_id} processed in {total_processing_time:.1f}ms: '{cleaned_response[:50]}{'...' if len(cleaned_response) > 50 else ''}'")
                         
                         return {
                             'response': cleaned_response,
@@ -681,7 +681,7 @@ class VoxtralModel:
                 
         except Exception as e:
             processing_time = (time.time() - chunk_start_time) * 1000
-            realtime_logger.error(f"❌ Error processing chunk {chunk_id}: {e}")
+            realtime_logger.error(f"[ERROR] Error processing chunk {chunk_id}: {e}")
             
             # Return error response with timing info
             error_msg = "Could not process audio"
@@ -778,7 +778,7 @@ class VoxtralModel:
         start_time = time.time()
 
         try:
-            realtime_logger.info(f"🎙️ Starting streaming processing for chunk {chunk_id}")
+            realtime_logger.info(f"[VAD] Starting streaming processing for chunk {chunk_id}")
 
             # Audio preprocessing (same as regular processing)
             preprocessing_start = time.time()
@@ -792,7 +792,7 @@ class VoxtralModel:
                 audio_data = audio_data / np.max(np.abs(audio_data)) * 0.95
 
             preprocessing_time = (time.time() - preprocessing_start) * 1000
-            realtime_logger.debug(f"⚡ Audio preprocessing completed in {preprocessing_time:.1f}ms")
+            realtime_logger.debug(f"[FAST] Audio preprocessing completed in {preprocessing_time:.1f}ms")
 
             # Process with VoxtralProcessor
             processor_start = time.time()
@@ -811,7 +811,7 @@ class VoxtralModel:
                 inputs = inputs.to(self.device)
 
             processor_time = (time.time() - processor_start) * 1000
-            realtime_logger.debug(f"⚡ Processor completed in {processor_time:.1f}ms")
+            realtime_logger.debug(f"[FAST] Processor completed in {processor_time:.1f}ms")
 
             # STREAMING INFERENCE: Generate tokens one by one
             inference_start = time.time()
@@ -871,7 +871,7 @@ class VoxtralModel:
                                     synced_gpus=False,
                                 )
                         except Exception as gen_error:
-                            realtime_logger.error(f"❌ Generation error at step {step}: {gen_error}")
+                            realtime_logger.error(f"[ERROR] Generation error at step {step}: {gen_error}")
                             break
 
                         # Extract new token with robust error handling
@@ -882,7 +882,7 @@ class VoxtralModel:
                                 new_token_id = outputs[-1].item()
                             generated_tokens.append(new_token_id)
                         except Exception as token_error:
-                            realtime_logger.error(f"❌ Token extraction error: {token_error}")
+                            realtime_logger.error(f"[ERROR] Token extraction error: {token_error}")
                             break
 
                         # Decode token to text with robust type checking
@@ -897,7 +897,7 @@ class VoxtralModel:
                                 token_text = str(token_text)
 
                         except Exception as decode_error:
-                            realtime_logger.warning(f"⚠️ Token decode error: {decode_error}, using fallback")
+                            realtime_logger.warning(f"[WARN] Token decode error: {decode_error}, using fallback")
                             token_text = f"<{new_token_id}>"
 
                         # Add to word buffer
@@ -935,7 +935,7 @@ class VoxtralModel:
                                 # Keep last word in buffer for next iteration
                                 word_buffer = words[-1] if len(words) > 2 else ""
 
-                                realtime_logger.debug(f"🎯 Sent {len(words_to_send.split())} words: '{words_to_send}'")
+                                realtime_logger.debug(f"[TARGET] Sent {len(words_to_send.split())} words: '{words_to_send}'")
 
                         # Update input for next iteration
                         current_input_ids = outputs
@@ -945,10 +945,10 @@ class VoxtralModel:
                         if (new_token_id == eos_token_id and
                             words_generated >= min_words_before_stop and
                             step > 20):  # Minimum 20 tokens before allowing EOS
-                            realtime_logger.info(f"✅ Natural EOS reached after {words_generated} words, {step} tokens")
+                            realtime_logger.info(f"[OK] Natural EOS reached after {words_generated} words, {step} tokens")
                             break
                         elif new_token_id == eos_token_id and words_generated < min_words_before_stop:
-                            realtime_logger.debug(f"⚠️ Early EOS ignored - only {words_generated} words generated")
+                            realtime_logger.debug(f"[WARN] Early EOS ignored - only {words_generated} words generated")
                             # Continue generation despite EOS
 
                         # Adaptive delay based on generation speed
@@ -978,7 +978,7 @@ class VoxtralModel:
                 else:
                     response_text = str(outputs[0]) if outputs is not None else "Generated response"
             except Exception as decode_error:
-                realtime_logger.warning(f"⚠️ Final decode error: {decode_error}")
+                realtime_logger.warning(f"[WARN] Final decode error: {decode_error}")
                 response_text = f"Generated {len(generated_tokens)} tokens"
 
             # Send completion marker
@@ -992,10 +992,10 @@ class VoxtralModel:
                 'timestamp': time.time()
             }
 
-            realtime_logger.info(f"✅ Streaming generation completed for chunk {chunk_id} in {inference_time:.1f}ms")
+            realtime_logger.info(f"[OK] Streaming generation completed for chunk {chunk_id} in {inference_time:.1f}ms")
 
         except Exception as e:
-            realtime_logger.error(f"❌ Error in streaming processing for chunk {chunk_id}: {e}")
+            realtime_logger.error(f"[ERROR] Error in streaming processing for chunk {chunk_id}: {e}")
             yield {
                 'type': 'error',
                 'error': str(e),
@@ -1013,7 +1013,7 @@ if __name__ == "__main__":
     
     async def test_model():
         """Test model initialization and basic functionality"""
-        print("🧪 Testing Voxtral Conversational Model with VAD...")
+        print("[EMOJI] Testing Voxtral Conversational Model with VAD...")
         
         try:
             # Initialize model
@@ -1029,11 +1029,11 @@ if __name__ == "__main__":
             result = await voxtral_model.process_realtime_chunk(loud_audio, 2)
             print(f"Loud audio result: {result}")
             
-            print(f"✅ Test completed successfully")
-            print(f"📊 Model info: {voxtral_model.get_model_info()}")
+            print(f"[OK] Test completed successfully")
+            print(f"[STATS] Model info: {voxtral_model.get_model_info()}")
             
         except Exception as e:
-            print(f"❌ Test failed: {e}")
+            print(f"[ERROR] Test failed: {e}")
             import traceback
             traceback.print_exc()
     

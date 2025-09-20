@@ -341,11 +341,11 @@ async def home(request: Request):
     </div>
     
     <div class="container">
-        <h1>🎙️ Voxtral Conversational AI</h1>
+        <h1>[VAD] Voxtral Conversational AI</h1>
         <p style="text-align: center; opacity: 0.8;">Intelligent conversation with Voice Activity Detection & Speech-to-Speech</p>
         
         <div class="vad-indicator">
-            <strong>🎤 Voice Status:</strong>
+            <strong>[MIC] Voice Status:</strong>
             <span class="vad-status vad-silence" id="vadStatus">Waiting</span>
             <span>Live:</span>
             <span class="realtime-indicator" id="realtimeIndicator"></span>
@@ -359,13 +359,13 @@ async def home(request: Request):
             <button id="connectBtn" class="connect-btn" onclick="connect()">Connect</button>
             <button id="streamBtn" class="stream-btn" onclick="startConversation()" disabled>Start Conversation</button>
             <button id="stopBtn" class="stop-btn" onclick="stopConversation()" disabled>Stop Conversation</button>
-            <button id="speechToSpeechBtn" class="stream-btn" onclick="startSpeechToSpeech()" disabled>🗣️ Speech-to-Speech</button>
+            <button id="speechToSpeechBtn" class="stream-btn" onclick="startSpeechToSpeech()" disabled>[SPEAK] Speech-to-Speech</button>
         </div>
 
         <!-- ULTRA-LOW LATENCY: Simplified Speech-to-Speech Only Mode -->
         <div class="audio-controls" style="justify-content: center; margin-bottom: 20px;">
             <div style="text-align: center; padding: 15px; background: rgba(255, 255, 255, 0.1); border-radius: 10px;">
-                <strong>🗣️ Speech-to-Speech Conversation</strong>
+                <strong>[SPEAK] Speech-to-Speech Conversation</strong>
                 <p style="margin: 5px 0; opacity: 0.8; font-size: 0.9em;">Ultra-low latency AI assistant ready for real-time voice conversation</p>
             </div>
         </div>
@@ -373,12 +373,12 @@ async def home(request: Request):
         <!-- Speech-to-Speech Controls (Always Visible) -->
         <div class="audio-controls" id="speechToSpeechControls" style="display: flex; justify-content: center; margin-bottom: 20px;">
             <div style="text-align: center; padding: 15px; background: rgba(255, 255, 255, 0.1); border-radius: 10px;">
-                <strong>🎤 Voice Settings</strong>
+                <strong>[MIC] Voice Settings</strong>
                 <div style="margin: 10px 0; display: flex; gap: 15px; justify-content: center; flex-wrap: wrap;">
                     <div>
                         <label>Voice:</label>
                         <select id="voiceSelect" onchange="updateVoiceSettings()">
-                            <option value="auto">🎭 Auto (Emotional)</option>
+                            <option value="auto">[MASK] Auto (Emotional)</option>
                             <option value="af_heart">Heart (Calm & Friendly)</option>
                             <option value="af_bella">Bella (Energetic & Excited)</option>
                             <option value="af_sarah">Sarah (Gentle & Empathetic)</option>
@@ -400,8 +400,8 @@ async def home(request: Request):
                     <div>
                         <label>Mode:</label>
                         <select id="streamingModeSelect" onchange="updateStreamingMode()">
-                            <option value="streaming" selected>🚀 Streaming (Ultra-Low Latency)</option>
-                            <option value="conversation">💬 Regular (Standard)</option>
+                            <option value="streaming" selected>[INIT] Streaming (Ultra-Low Latency)</option>
+                            <option value="conversation">[EMOJI] Regular (Standard)</option>
                         </select>
                     </div>
                 </div>
@@ -450,27 +450,27 @@ async def home(request: Request):
         <!-- Speech-to-Speech Conversation Display -->
         <div class="conversation" id="speechToSpeechConversation" style="display: none;">
             <div style="text-align: center; margin-bottom: 20px;">
-                <h3>🗣️ Speech-to-Speech Conversation</h3>
+                <h3>[SPEAK] Speech-to-Speech Conversation</h3>
                 <p style="opacity: 0.8; font-size: 0.9em;">Speak naturally - I'll transcribe, respond, and speak back to you!</p>
             </div>
 
             <!-- Real-time Transcription Display -->
             <div id="currentTranscription" style="background: rgba(0, 184, 148, 0.2); padding: 15px; border-radius: 10px; margin-bottom: 15px; display: none;">
-                <strong>🎤 You said:</strong>
+                <strong>[MIC] You said:</strong>
                 <div id="transcriptionText" style="font-style: italic; margin-top: 5px;"></div>
                 <div class="timestamp" id="transcriptionTime"></div>
             </div>
 
             <!-- AI Response Text Display -->
             <div id="currentResponse" style="background: rgba(116, 185, 255, 0.2); padding: 15px; border-radius: 10px; margin-bottom: 15px; display: none;">
-                <strong>🤖 AI Response:</strong>
+                <strong>[EMOJI] AI Response:</strong>
                 <div id="responseText" style="margin-top: 5px;"></div>
                 <div class="timestamp" id="responseTime"></div>
             </div>
 
             <!-- Audio Playback Controls -->
             <div id="audioPlayback" style="background: rgba(255, 255, 255, 0.1); padding: 15px; border-radius: 10px; margin-bottom: 15px; display: none;">
-                <strong>🔊 AI Speech:</strong>
+                <strong>[SPEAKER] AI Speech:</strong>
                 <div style="margin-top: 10px;">
                     <audio id="responseAudio" controls style="width: 100%; background: rgba(255, 255, 255, 0.1);">
                         Your browser does not support the audio element.
@@ -483,7 +483,7 @@ async def home(request: Request):
 
             <!-- Processing Status -->
             <div id="processingStatus" style="background: rgba(253, 203, 110, 0.2); padding: 15px; border-radius: 10px; margin-bottom: 15px; display: none;">
-                <strong>⚡ Processing:</strong>
+                <strong>[FAST] Processing:</strong>
                 <div id="processingMessage" style="margin-top: 5px;">Initializing...</div>
                 <div class="timestamp" id="processingTime"></div>
             </div>
@@ -498,7 +498,7 @@ async def home(request: Request):
         </div>
         
         <div id="performanceWarning" class="performance-warning" style="display: none;">
-            ⚠️ High latency detected. For better performance, try using "Simple Transcription" mode or check your internet connection.
+            [WARN] High latency detected. For better performance, try using "Simple Transcription" mode or check your internet connection.
         </div>
     </div>
     
@@ -701,9 +701,9 @@ async def home(request: Request):
 
             // Update status to reflect mode change
             if (streamingModeEnabled) {
-                updateStatus('🚀 Ultra-low latency streaming mode enabled', 'success');
+                updateStatus('[INIT] Ultra-low latency streaming mode enabled', 'success');
             } else {
-                updateStatus('💬 Regular conversation mode enabled', 'info');
+                updateStatus('[EMOJI] Regular conversation mode enabled', 'info');
             }
         }
 
@@ -846,7 +846,7 @@ async def home(request: Request):
                               analysis.appropriateness_score >= 0.7 ? '#fdcb6e' : '#e17055';
 
             analysisDiv.innerHTML = `
-                <strong>🎭 Emotional Analysis:</strong><br>
+                <strong>[MASK] Emotional Analysis:</strong><br>
                 <div style="margin-top: 5px;">
                     <span>User: <strong>${analysis.user_emotion}</strong></span> →
                     <span>AI: <strong>${analysis.response_emotion}</strong></span>
@@ -1021,7 +1021,7 @@ async def home(request: Request):
                     // Handle streaming word-by-word text
                     if (streamingModeEnabled) {
                         handleStreamingWords(data);
-                        log(`🚀 Streaming words: "${data.text}" (sequence: ${data.sequence})`);
+                        log(`[INIT] Streaming words: "${data.text}" (sequence: ${data.sequence})`);
                     }
                     break;
 
@@ -1029,7 +1029,7 @@ async def home(request: Request):
                     // Handle streaming audio chunks
                     if (streamingModeEnabled) {
                         handleStreamingAudio(data);
-                        log(`🎵 Streaming audio chunk ${data.chunk_index} (final: ${data.is_final})`);
+                        log(`[AUDIO] Streaming audio chunk ${data.chunk_index} (final: ${data.is_final})`);
                     }
                     break;
 
@@ -1037,7 +1037,7 @@ async def home(request: Request):
                     // Handle user interruption detection
                     if (streamingModeEnabled) {
                         handleInterruption(data);
-                        log(`🛑 User interruption detected: ${data.message}`);
+                        log(`[EMOJI] User interruption detected: ${data.message}`);
                     }
                     break;
 
@@ -1048,7 +1048,7 @@ async def home(request: Request):
 
         function handleAudioResponse(data) {
             try {
-                log(`🎵 Received TTS audio response for chunk ${data.chunk_id} (${data.audio_data.length} chars)`);
+                log(`[AUDIO] Received TTS audio response for chunk ${data.chunk_id} (${data.audio_data.length} chars)`);
 
                 // Add to audio queue for sequential playback
                 audioQueue.push({
@@ -1058,7 +1058,7 @@ async def home(request: Request):
                     voice: data.voice || 'unknown'
                 });
 
-                log(`🎵 Added audio to queue. Queue length: ${audioQueue.length}`);
+                log(`[AUDIO] Added audio to queue. Queue length: ${audioQueue.length}`);
 
                 // Start processing queue if not already playing
                 if (!isPlayingAudio) {
@@ -1066,7 +1066,7 @@ async def home(request: Request):
                 }
 
             } catch (error) {
-                log(`❌ Error handling audio response: ${error}`);
+                log(`[ERROR] Error handling audio response: ${error}`);
                 updateStatus('Error processing audio response', 'error');
                 console.error('Audio response error:', error);
             }
@@ -1083,11 +1083,11 @@ async def home(request: Request):
                 const audioItem = audioQueue.shift();
 
                 try {
-                    log(`🎵 Processing audio chunk ${audioItem.chunkId} from queue`);
+                    log(`[AUDIO] Processing audio chunk ${audioItem.chunkId} from queue`);
                     await playAudioItem(audioItem);
-                    log(`✅ Completed playing audio chunk ${audioItem.chunkId}`);
+                    log(`[OK] Completed playing audio chunk ${audioItem.chunkId}`);
                 } catch (error) {
-                    log(`❌ Error playing audio chunk ${audioItem.chunkId}: ${error}`);
+                    log(`[ERROR] Error playing audio chunk ${audioItem.chunkId}: ${error}`);
                     console.error('Audio playback error:', error);
                 }
 
@@ -1097,7 +1097,7 @@ async def home(request: Request):
 
             isPlayingAudio = false;
             updateStatus('Ready for conversation', 'success');
-            log('🎵 Audio queue processing completed');
+            log('[AUDIO] Audio queue processing completed');
         }
 
         function playAudioItem(audioItem) {
@@ -1105,7 +1105,7 @@ async def home(request: Request):
                 try {
                     const { chunkId, audioData, metadata, voice } = audioItem;
 
-                    log(`🎵 Converting base64 audio for chunk ${chunkId} (${audioData.length} chars)`);
+                    log(`[AUDIO] Converting base64 audio for chunk ${chunkId} (${audioData.length} chars)`);
 
                     // Convert base64 to blob with proper error handling
                     const binaryString = atob(audioData);
@@ -1114,7 +1114,7 @@ async def home(request: Request):
                         bytes[i] = binaryString.charCodeAt(i);
                     }
 
-                    log(`🎵 Created audio buffer: ${bytes.length} bytes`);
+                    log(`[AUDIO] Created audio buffer: ${bytes.length} bytes`);
 
                     // Create audio blob with explicit WAV headers
                     const audioBlob = new Blob([bytes], { type: 'audio/wav' });
@@ -1126,40 +1126,40 @@ async def home(request: Request):
                     audio.volume = 1.0;
 
                     // Enhanced audio debugging
-                    log(`🎵 Audio metadata: ${JSON.stringify(metadata)}`);
-                    log(`🎵 Audio blob size: ${audioBlob.size} bytes, type: ${audioBlob.type}`);
+                    log(`[AUDIO] Audio metadata: ${JSON.stringify(metadata)}`);
+                    log(`[AUDIO] Audio blob size: ${audioBlob.size} bytes, type: ${audioBlob.type}`);
 
                     // Store reference for cleanup
                     currentAudio = audio;
 
                     // Set up event listeners BEFORE setting src
                     audio.addEventListener('loadstart', () => {
-                        log(`🎵 Started loading audio chunk ${chunkId}`);
+                        log(`[AUDIO] Started loading audio chunk ${chunkId}`);
                     });
 
                     audio.addEventListener('loadedmetadata', () => {
-                        log(`🎵 Audio metadata loaded - Duration: ${audio.duration}s, Sample Rate: ${audio.sampleRate || 'unknown'}Hz`);
+                        log(`[AUDIO] Audio metadata loaded - Duration: ${audio.duration}s, Sample Rate: ${audio.sampleRate || 'unknown'}Hz`);
                     });
 
                     audio.addEventListener('canplaythrough', () => {
-                        log(`🎵 Audio chunk ${chunkId} ready to play (${metadata.audio_duration_ms || 'unknown'}ms)`);
-                        log(`🎵 Browser audio info - Duration: ${audio.duration}s, Buffered: ${audio.buffered.length} ranges`);
+                        log(`[AUDIO] Audio chunk ${chunkId} ready to play (${metadata.audio_duration_ms || 'unknown'}ms)`);
+                        log(`[AUDIO] Browser audio info - Duration: ${audio.duration}s, Buffered: ${audio.buffered.length} ranges`);
                     });
 
                     audio.addEventListener('play', () => {
-                        log(`🎵 Started playing audio chunk ${chunkId} with voice '${voice}'`);
-                        log(`🎵 Playback info - Current time: ${audio.currentTime}s, Volume: ${audio.volume}, Playback rate: ${audio.playbackRate}`);
-                        updateStatus(`🔊 Playing AI response (${voice})...`, 'success');
+                        log(`[AUDIO] Started playing audio chunk ${chunkId} with voice '${voice}'`);
+                        log(`[AUDIO] Playback info - Current time: ${audio.currentTime}s, Volume: ${audio.volume}, Playback rate: ${audio.playbackRate}`);
+                        updateStatus(`[SPEAKER] Playing AI response (${voice})...`, 'success');
                     });
 
                     audio.addEventListener('timeupdate', () => {
                         if (audio.currentTime > 0) {
-                            log(`🎵 Playing chunk ${chunkId} - Progress: ${audio.currentTime.toFixed(2)}s / ${audio.duration.toFixed(2)}s`);
+                            log(`[AUDIO] Playing chunk ${chunkId} - Progress: ${audio.currentTime.toFixed(2)}s / ${audio.duration.toFixed(2)}s`);
                         }
                     });
 
                     audio.addEventListener('ended', () => {
-                        log(`✅ Finished playing audio chunk ${chunkId} - Total duration: ${audio.duration}s`);
+                        log(`[OK] Finished playing audio chunk ${chunkId} - Total duration: ${audio.duration}s`);
                         URL.revokeObjectURL(audioUrl);
                         currentAudio = null;
                         resolve();
@@ -1172,15 +1172,15 @@ async def home(request: Request):
                             networkState: audio.networkState,
                             readyState: audio.readyState
                         };
-                        log(`❌ Audio playback error for chunk ${chunkId}: ${JSON.stringify(errorDetails)}`);
-                        log(`❌ Audio element state - src: ${audio.src.substring(0, 50)}..., duration: ${audio.duration}`);
+                        log(`[ERROR] Audio playback error for chunk ${chunkId}: ${JSON.stringify(errorDetails)}`);
+                        log(`[ERROR] Audio element state - src: ${audio.src.substring(0, 50)}..., duration: ${audio.duration}`);
                         URL.revokeObjectURL(audioUrl);
                         currentAudio = null;
                         reject(new Error(`Audio playback failed: ${JSON.stringify(errorDetails)}`));
                     });
 
                     audio.addEventListener('abort', () => {
-                        log(`⚠️ Audio playback aborted for chunk ${chunkId}`);
+                        log(`[WARN] Audio playback aborted for chunk ${chunkId}`);
                         URL.revokeObjectURL(audioUrl);
                         currentAudio = null;
                         resolve(); // Don't reject on abort, just continue
@@ -1194,10 +1194,10 @@ async def home(request: Request):
                         try {
                             await audio.play();
                         } catch (playError) {
-                            log(`⚠️ Play attempt failed for chunk ${chunkId}: ${playError.message}`);
+                            log(`[WARN] Play attempt failed for chunk ${chunkId}: ${playError.message}`);
 
                             if (retries > 0 && !playError.message.includes('aborted')) {
-                                log(`🔄 Retrying playback for chunk ${chunkId} (${retries} attempts left)`);
+                                log(`[EMOJI] Retrying playback for chunk ${chunkId} (${retries} attempts left)`);
                                 setTimeout(() => playWithRetry(retries - 1), 200);
                             } else {
                                 URL.revokeObjectURL(audioUrl);
@@ -1215,7 +1215,7 @@ async def home(request: Request):
                     }
 
                 } catch (error) {
-                    log(`❌ Error creating audio for chunk ${audioItem.chunkId}: ${error}`);
+                    log(`[ERROR] Error creating audio for chunk ${audioItem.chunkId}: ${error}`);
                     reject(error);
                 }
             });
@@ -1239,7 +1239,7 @@ async def home(request: Request):
                 const silenceMessage = document.createElement('div');
                 silenceMessage.className = 'message silence-message';
                 silenceMessage.innerHTML = `
-                    <div><em>🔇 Silence detected - no response needed</em></div>
+                    <div><em>[MUTE] Silence detected - no response needed</em></div>
                     <div class="timestamp">${timestamp} (${data.processing_time_ms}ms)</div>
                 `;
                 contentDiv.appendChild(silenceMessage);
@@ -1392,7 +1392,7 @@ async def home(request: Request):
                 document.getElementById('streamBtn').disabled = true;
                 document.getElementById('stopBtn').disabled = false;
                 updateConnectionStatus(true, true);
-                updateStatus('🎙️ Conversation active with VAD - speak naturally!', 'success');
+                updateStatus('[VAD] Conversation active with VAD - speak naturally!', 'success');
                 updateVadStatus('silence');
                 
                 setInterval(updateStreamDuration, 1000);
@@ -1420,7 +1420,7 @@ async def home(request: Request):
             // Clear audio queue
             audioQueue = [];
             isPlayingAudio = false;
-            log('🎵 Audio queue cleared');
+            log('[AUDIO] Audio queue cleared');
             
             if (audioWorkletNode) {
                 audioWorkletNode.disconnect();
@@ -1579,7 +1579,7 @@ async def home(request: Request):
                     log(`Error playing streaming audio: ${e.message}`);
                 });
 
-                log(`🎵 Playing streaming audio chunk ${data.chunk_index}`);
+                log(`[AUDIO] Playing streaming audio chunk ${data.chunk_index}`);
 
                 // Clean up URL after playback
                 audio.addEventListener('ended', () => {
@@ -1605,8 +1605,8 @@ async def home(request: Request):
             }
 
             // Show interruption message
-            updateStatus('🛑 Interruption detected - ready for new input', 'info');
-            log('🛑 User interruption handled - cleared streaming state');
+            updateStatus('[EMOJI] Interruption detected - ready for new input', 'info');
+            log('[EMOJI] User interruption handled - cleared streaming state');
         }
 
         // Initialize on page load
@@ -1802,7 +1802,7 @@ async def detect_user_interruption(audio_chunk: np.ndarray, current_state: str =
         return is_interruption
 
     except Exception as e:
-        logger.error(f"❌ Interruption detection error: {e}")
+        logger.error(f"[ERROR] Interruption detection error: {e}")
         return False
 
 async def handle_conversational_audio_chunk(websocket: WebSocket, data: dict, client_id: str):
@@ -1876,7 +1876,7 @@ async def handle_conversational_audio_chunk(websocket: WebSocket, data: dict, cl
         try:
             if streaming_mode:
                 # STREAMING MODE: Process with token-by-token streaming
-                streaming_logger.info(f"🎙️ Starting streaming processing for chunk {chunk_id}")
+                streaming_logger.info(f"[VAD] Starting streaming processing for chunk {chunk_id}")
 
                 # Import streaming coordinator
                 from src.streaming.streaming_coordinator import streaming_coordinator
@@ -1889,7 +1889,7 @@ async def handle_conversational_audio_chunk(websocket: WebSocket, data: dict, cl
                 is_interruption = await detect_user_interruption(audio_array, current_state.value if hasattr(current_state, 'value') else str(current_state))
 
                 if is_interruption:
-                    streaming_logger.info(f"🛑 User interruption detected for {client_id}")
+                    streaming_logger.info(f"[EMOJI] User interruption detected for {client_id}")
                     await streaming_coordinator.handle_interruption("user_speech")
                     await websocket.send_text(json.dumps({
                         "type": "interruption",
@@ -1956,10 +1956,10 @@ async def handle_conversational_audio_chunk(websocket: WebSocket, data: dict, cl
 
                                 elif tts_chunk.get('is_final'):
                                     tts_time = performance_monitor.end_timing(tts_timing_id)
-                                    streaming_logger.info(f"✅ TTS chunk completed in {tts_time:.1f}ms")
+                                    streaming_logger.info(f"[OK] TTS chunk completed in {tts_time:.1f}ms")
 
                         except Exception as tts_error:
-                            streaming_logger.error(f"❌ TTS streaming error: {tts_error}")
+                            streaming_logger.error(f"[ERROR] TTS streaming error: {tts_error}")
 
                     elif stream_chunk.type == 'session_complete':
                         # End Voxtral timing
@@ -1977,7 +1977,7 @@ async def handle_conversational_audio_chunk(websocket: WebSocket, data: dict, cl
                         break
 
                     elif stream_chunk.type == 'error':
-                        streaming_logger.error(f"❌ Streaming error: {stream_chunk.content}")
+                        streaming_logger.error(f"[ERROR] Streaming error: {stream_chunk.content}")
                         await websocket.send_text(json.dumps({
                             "type": "error",
                             "message": f"Streaming error: {stream_chunk.content.get('error', 'Unknown error')}",
@@ -2049,7 +2049,7 @@ async def handle_conversational_audio_chunk(websocket: WebSocket, data: dict, cl
                                     audio_rms = np.sqrt(np.mean(audio_data**2))
                                     audio_peak = np.max(np.abs(audio_data))
 
-                                    logger.info(f"🎵 Audio quality check - RMS: {audio_rms:.6f}, Peak: {audio_peak:.6f}")
+                                    logger.info(f"[AUDIO] Audio quality check - RMS: {audio_rms:.6f}, Peak: {audio_peak:.6f}")
 
                                     # Normalize audio if too quiet or too loud
                                     normalized_audio = audio_data
@@ -2057,11 +2057,11 @@ async def handle_conversational_audio_chunk(websocket: WebSocket, data: dict, cl
                                         target_rms = 0.2
                                         gain = target_rms / (audio_rms + 1e-8)
                                         normalized_audio = audio_data * gain
-                                        logger.info(f"🔊 Audio boosted by {gain:.2f}x (was too quiet)")
+                                        logger.info(f"[SPEAKER] Audio boosted by {gain:.2f}x (was too quiet)")
                                     elif audio_peak > 0.95:  # Risk of clipping
                                         gain = 0.9 / audio_peak
                                         normalized_audio = audio_data * gain
-                                        logger.info(f"🔉 Audio reduced by {gain:.2f}x (preventing clipping)")
+                                        logger.info(f"[EMOJI] Audio reduced by {gain:.2f}x (preventing clipping)")
 
                                     # Convert numpy array to proper WAV format with headers
                                     import soundfile as sf
@@ -2081,7 +2081,7 @@ async def handle_conversational_audio_chunk(websocket: WebSocket, data: dict, cl
                                     if wav_bytes[:4] != b'RIFF' or wav_bytes[8:12] != b'WAVE':
                                         raise Exception("Invalid WAV file headers")
 
-                                    logger.info(f"✅ WAV file created: {len(wav_bytes)} bytes with proper headers")
+                                    logger.info(f"[OK] WAV file created: {len(wav_bytes)} bytes with proper headers")
 
                                     # Convert to base64 for transmission
                                     audio_b64 = base64.b64encode(wav_bytes).decode('utf-8')
@@ -2147,7 +2147,7 @@ async def handle_conversational_audio_chunk(websocket: WebSocket, data: dict, cl
 
 async def initialize_models_at_startup():
     """Initialize all models using unified model manager at application startup"""
-    streaming_logger.info("🚀 Initializing unified model system at startup...")
+    streaming_logger.info("[INIT] Initializing unified model system at startup...")
 
     try:
         # Initialize unified model manager
@@ -2156,38 +2156,38 @@ async def initialize_models_at_startup():
         performance_monitor = get_performance_monitor()
 
         if not unified_manager.is_initialized:
-            streaming_logger.info("📥 Initializing unified model manager...")
+            streaming_logger.info("[INPUT] Initializing unified model manager...")
             success = await unified_manager.initialize()
             
             if success:
-                streaming_logger.info("✅ Unified model manager initialized successfully")
+                streaming_logger.info("[OK] Unified model manager initialized successfully")
                 
                 # Get model info for logging
                 model_info = unified_manager.get_model_info()
-                streaming_logger.info(f"📊 Voxtral initialized: {model_info['unified_manager']['voxtral_initialized']}")
-                streaming_logger.info(f"📊 Kokoro TTS initialized: {model_info['unified_manager']['kokoro_initialized']}")
+                streaming_logger.info(f"[STATS] Voxtral initialized: {model_info['unified_manager']['voxtral_initialized']}")
+                streaming_logger.info(f"[STATS] Kokoro TTS initialized: {model_info['unified_manager']['kokoro_initialized']}")
 
                 # Log memory statistics
                 memory_stats = unified_manager.get_memory_stats()
                 if "memory_stats" in memory_stats:
                     stats = memory_stats["memory_stats"]
-                    streaming_logger.info(f"💾 GPU Memory: {stats['used_vram_gb']:.2f}GB / {stats['total_vram_gb']:.2f}GB")
-                    streaming_logger.info(f"💾 Voxtral: {stats['voxtral_memory_gb']:.2f}GB, Kokoro: {stats['kokoro_memory_gb']:.2f}GB")
+                    streaming_logger.info(f"[FLOPPY] GPU Memory: {stats['used_vram_gb']:.2f}GB / {stats['total_vram_gb']:.2f}GB")
+                    streaming_logger.info(f"[FLOPPY] Voxtral: {stats['voxtral_memory_gb']:.2f}GB, Kokoro: {stats['kokoro_memory_gb']:.2f}GB")
                 
             else:
                 raise Exception("Unified model manager initialization failed")
         else:
-            streaming_logger.info("✅ Unified model manager already initialized")
+            streaming_logger.info("[OK] Unified model manager already initialized")
 
-        streaming_logger.info("🎉 All models ready for conversation with Kokoro TTS integration!")
+        streaming_logger.info("[SUCCESS] All models ready for conversation with Kokoro TTS integration!")
 
     except Exception as e:
-        streaming_logger.error(f"❌ Failed to initialize unified model system: {e}")
+        streaming_logger.error(f"[ERROR] Failed to initialize unified model system: {e}")
         # Try to get error details from unified manager
         try:
             unified_manager = get_unified_manager()
             error_summary = unified_manager.get_model_info()
-            streaming_logger.error(f"📊 Model states: {error_summary}")
+            streaming_logger.error(f"[STATS] Model states: {error_summary}")
         except:
             pass
         raise

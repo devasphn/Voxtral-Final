@@ -62,7 +62,7 @@ class GPUMemoryManager:
         """
         try:
             if self.device == "cpu":
-                gpu_logger.warning("⚠️ Running on CPU - GPU acceleration not available")
+                gpu_logger.warning("[WARN] Running on CPU - GPU acceleration not available")
                 return True
             
             # Get GPU memory info
@@ -75,7 +75,7 @@ class GPUMemoryManager:
             
             available_memory_gb = total_memory_gb - allocated_memory_gb
             
-            gpu_logger.info(f"🔍 GPU Memory Analysis:")
+            gpu_logger.info(f"[SEARCH] GPU Memory Analysis:")
             gpu_logger.info(f"   Total VRAM: {total_memory_gb:.2f} GB")
             gpu_logger.info(f"   Currently allocated: {allocated_memory_gb:.2f} GB")
             gpu_logger.info(f"   Available: {available_memory_gb:.2f} GB")
@@ -92,7 +92,7 @@ class GPUMemoryManager:
             required_memory_gb = self.voxtral_base_memory_gb + self.kokoro_base_memory_gb
             if available_memory_gb < required_memory_gb:
                 gpu_logger.warning(
-                    f"⚠️ Limited available VRAM: {available_memory_gb:.2f} GB available, "
+                    f"[WARN] Limited available VRAM: {available_memory_gb:.2f} GB available, "
                     f"{required_memory_gb:.2f} GB required. May need memory optimization."
                 )
                 
@@ -112,14 +112,14 @@ class GPUMemoryManager:
             
             # Log recommendations
             if total_memory_gb >= self.recommended_vram_gb:
-                gpu_logger.info("✅ Excellent VRAM capacity - optimal performance expected")
+                gpu_logger.info("[OK] Excellent VRAM capacity - optimal performance expected")
             elif total_memory_gb >= self.min_vram_gb:
-                gpu_logger.info("✅ Sufficient VRAM - good performance expected")
+                gpu_logger.info("[OK] Sufficient VRAM - good performance expected")
             
             return True
             
         except Exception as e:
-            gpu_logger.error(f"❌ VRAM validation failed: {e}")
+            gpu_logger.error(f"[ERROR] VRAM validation failed: {e}")
             raise
     
     def create_shared_memory_pool(self) -> Optional[Any]:
@@ -129,10 +129,10 @@ class GPUMemoryManager:
         """
         try:
             if self.device == "cpu":
-                gpu_logger.info("💡 CPU mode - no GPU memory pool needed")
+                gpu_logger.info("[IDEA] CPU mode - no GPU memory pool needed")
                 return None
             
-            gpu_logger.info("🏊 Creating shared GPU memory pool...")
+            gpu_logger.info("[SWIM] Creating shared GPU memory pool...")
             
             # Set memory allocation strategy for better sharing
             torch.cuda.empty_cache()
@@ -141,19 +141,19 @@ class GPUMemoryManager:
             if hasattr(torch.cuda, 'set_per_process_memory_fraction'):
                 # Reserve 90% of GPU memory for our models
                 torch.cuda.set_per_process_memory_fraction(0.9)
-                gpu_logger.info("🎯 Set GPU memory fraction to 90%")
+                gpu_logger.info("[TARGET] Set GPU memory fraction to 90%")
             
             # Enable memory pooling if available
             if hasattr(torch.cuda, 'memory_pool'):
                 self.memory_pool = torch.cuda.memory_pool()
-                gpu_logger.info("✅ GPU memory pool created successfully")
+                gpu_logger.info("[OK] GPU memory pool created successfully")
             else:
-                gpu_logger.info("💡 Using default CUDA memory allocator")
+                gpu_logger.info("[IDEA] Using default CUDA memory allocator")
             
             return self.memory_pool
             
         except Exception as e:
-            gpu_logger.error(f"❌ Failed to create memory pool: {e}")
+            gpu_logger.error(f"[ERROR] Failed to create memory pool: {e}")
             return None
     
     def cleanup_unused_memory(self) -> None:
@@ -161,7 +161,7 @@ class GPUMemoryManager:
         Cleanup unused GPU memory and run garbage collection
         """
         try:
-            gpu_logger.info("🧹 Cleaning up unused GPU memory...")
+            gpu_logger.info("[CLEANUP] Cleaning up unused GPU memory...")
             
             if self.device == "cuda":
                 # Get memory stats before cleanup
@@ -181,7 +181,7 @@ class GPUMemoryManager:
                 freed_allocated = before_allocated - after_allocated
                 freed_cached = before_cached - after_cached
                 
-                gpu_logger.info(f"✅ Memory cleanup completed:")
+                gpu_logger.info(f"[OK] Memory cleanup completed:")
                 gpu_logger.info(f"   Freed allocated memory: {freed_allocated:.2f} GB")
                 gpu_logger.info(f"   Freed cached memory: {freed_cached:.2f} GB")
                 gpu_logger.info(f"   Current allocated: {after_allocated:.2f} GB")
@@ -189,10 +189,10 @@ class GPUMemoryManager:
             else:
                 # CPU cleanup
                 gc.collect()
-                gpu_logger.info("✅ CPU memory garbage collection completed")
+                gpu_logger.info("[OK] CPU memory garbage collection completed")
                 
         except Exception as e:
-            gpu_logger.error(f"❌ Memory cleanup failed: {e}")
+            gpu_logger.error(f"[ERROR] Memory cleanup failed: {e}")
     
     def track_model_memory(self, model_name: str, memory_gb: float) -> None:
         """
@@ -205,7 +205,7 @@ class GPUMemoryManager:
         elif model_name.lower() == "kokoro":
             self.kokoro_memory_gb = memory_gb
             
-        gpu_logger.info(f"📊 Tracking {model_name} memory usage: {memory_gb:.2f} GB")
+        gpu_logger.info(f"[STATS] Tracking {model_name} memory usage: {memory_gb:.2f} GB")
     
     def get_memory_stats(self) -> MemoryStats:
         """
@@ -242,7 +242,7 @@ class GPUMemoryManager:
             )
             
         except Exception as e:
-            gpu_logger.error(f"❌ Failed to get memory stats: {e}")
+            gpu_logger.error(f"[ERROR] Failed to get memory stats: {e}")
             # Return empty stats on error
             return MemoryStats(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
     
@@ -255,7 +255,7 @@ class GPUMemoryManager:
             stats = self.get_memory_stats()
             recommendations = {}
             
-            gpu_logger.info("🎯 Analyzing memory allocation for optimization...")
+            gpu_logger.info("[TARGET] Analyzing memory allocation for optimization...")
             
             # Determine optimal settings based on available VRAM
             if stats.total_vram_gb >= self.recommended_vram_gb:
@@ -267,7 +267,7 @@ class GPUMemoryManager:
                     "memory_efficient": False,
                     "optimization_level": "performance"
                 })
-                gpu_logger.info("🚀 High VRAM detected - using performance optimization")
+                gpu_logger.info("[INIT] High VRAM detected - using performance optimization")
                 
             elif stats.total_vram_gb >= self.min_vram_gb:
                 # Medium VRAM - balanced settings
@@ -278,7 +278,7 @@ class GPUMemoryManager:
                     "memory_efficient": True,
                     "optimization_level": "balanced"
                 })
-                gpu_logger.info("⚖️ Medium VRAM detected - using balanced optimization")
+                gpu_logger.info("[EMOJI] Medium VRAM detected - using balanced optimization")
                 
             else:
                 # Low VRAM - memory-efficient settings
@@ -289,7 +289,7 @@ class GPUMemoryManager:
                     "memory_efficient": True,
                     "optimization_level": "memory_efficient"
                 })
-                gpu_logger.info("💾 Low VRAM detected - using memory-efficient optimization")
+                gpu_logger.info("[FLOPPY] Low VRAM detected - using memory-efficient optimization")
             
             # Add memory management recommendations
             recommendations.update({
@@ -301,7 +301,7 @@ class GPUMemoryManager:
             return recommendations
             
         except Exception as e:
-            gpu_logger.error(f"❌ Memory optimization analysis failed: {e}")
+            gpu_logger.error(f"[ERROR] Memory optimization analysis failed: {e}")
             return {"optimization_level": "safe", "memory_efficient": True}
     
     def monitor_memory_usage(self) -> Dict[str, Any]:
@@ -342,12 +342,12 @@ class GPUMemoryManager:
             
             # Log warnings
             for warning in warnings:
-                gpu_logger.warning(f"⚠️ {warning}")
+                gpu_logger.warning(f"[WARN] {warning}")
             
             return monitoring_data
             
         except Exception as e:
-            gpu_logger.error(f"❌ Memory monitoring failed: {e}")
+            gpu_logger.error(f"[ERROR] Memory monitoring failed: {e}")
             return {"status": "error", "error": str(e)}
 
 # Global memory manager instance

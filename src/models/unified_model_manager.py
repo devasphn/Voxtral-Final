@@ -60,10 +60,10 @@ class UnifiedModelManager:
         try:
             with self.initialization_lock:
                 if self.is_initialized:
-                    unified_logger.info("✅ Models already initialized")
+                    unified_logger.info("[OK] Models already initialized")
                     return True
                 
-                unified_logger.info("🚀 Starting unified model initialization...")
+                unified_logger.info("[INIT] Starting unified model initialization...")
                 total_start_time = time.time()
                 
                 # Step 1: Initialize GPU Memory Manager
@@ -81,7 +81,7 @@ class UnifiedModelManager:
                 self.initialization_times["total"] = total_time
 
                 self.is_initialized = True
-                unified_logger.info(f"🎉 ULTRA-LOW LATENCY model initialization completed in {total_time:.2f}s")
+                unified_logger.info(f"[SUCCESS] ULTRA-LOW LATENCY model initialization completed in {total_time:.2f}s")
 
                 # ULTRA-LOW LATENCY: Skip detailed memory logging unless needed
                 if not self.skip_detailed_logging:
@@ -90,14 +90,14 @@ class UnifiedModelManager:
                 return True
                 
         except Exception as e:
-            unified_logger.error(f"❌ Unified model initialization failed: {e}")
+            unified_logger.error(f"[ERROR] Unified model initialization failed: {e}")
             await self._cleanup_partial_initialization()
             raise ModelInitializationError(f"Failed to initialize models: {e}")
     
     async def _initialize_memory_manager(self):
         """Initialize GPU memory manager and validate requirements"""
         try:
-            unified_logger.info("🧠 Initializing GPU Memory Manager...")
+            unified_logger.info("[BRAIN] Initializing GPU Memory Manager...")
             start_time = time.time()
             
             self.gpu_memory_manager = GPUMemoryManager()
@@ -112,19 +112,19 @@ class UnifiedModelManager:
             init_time = time.time() - start_time
             self.initialization_times["memory_manager"] = init_time
             
-            unified_logger.info(f"✅ GPU Memory Manager initialized in {init_time:.2f}s")
+            unified_logger.info(f"[OK] GPU Memory Manager initialized in {init_time:.2f}s")
             
         except InsufficientVRAMError as e:
-            unified_logger.error(f"❌ Insufficient VRAM: {e}")
+            unified_logger.error(f"[ERROR] Insufficient VRAM: {e}")
             raise ModelInitializationError(f"VRAM requirements not met: {e}")
         except Exception as e:
-            unified_logger.error(f"❌ Memory manager initialization failed: {e}")
+            unified_logger.error(f"[ERROR] Memory manager initialization failed: {e}")
             raise ModelInitializationError(f"Memory manager initialization failed: {e}")
     
     async def _initialize_voxtral_model(self):
         """Initialize Voxtral model first for optimal memory layout"""
         try:
-            unified_logger.info("🎙️ Initializing Voxtral model...")
+            unified_logger.info("[VAD] Initializing Voxtral model...")
             start_time = time.time()
             
             # Import and create Voxtral model
@@ -143,16 +143,16 @@ class UnifiedModelManager:
             init_time = time.time() - start_time
             self.initialization_times["voxtral"] = init_time
             
-            unified_logger.info(f"✅ Voxtral model initialized in {init_time:.2f}s")
+            unified_logger.info(f"[OK] Voxtral model initialized in {init_time:.2f}s")
             
         except Exception as e:
-            unified_logger.error(f"❌ Voxtral initialization failed: {e}")
+            unified_logger.error(f"[ERROR] Voxtral initialization failed: {e}")
             raise ModelInitializationError(f"Voxtral initialization failed: {e}")
     
     async def _initialize_kokoro_model(self):
         """Initialize Kokoro TTS model"""
         try:
-            unified_logger.info("🎵 Initializing Kokoro TTS model...")
+            unified_logger.info("[AUDIO] Initializing Kokoro TTS model...")
             start_time = time.time()
 
             # Create Kokoro TTS Model
@@ -162,7 +162,7 @@ class UnifiedModelManager:
             success = await self.kokoro_model.initialize()
 
             if not success:
-                unified_logger.error("❌ Kokoro TTS model initialization failed")
+                unified_logger.error("[ERROR] Kokoro TTS model initialization failed")
                 raise ModelInitializationError("Kokoro TTS model initialization failed")
 
             # Track memory usage
@@ -176,16 +176,16 @@ class UnifiedModelManager:
             init_time = time.time() - start_time
             self.initialization_times["kokoro"] = init_time
 
-            unified_logger.info(f"✅ Kokoro TTS model initialized in {init_time:.2f}s")
+            unified_logger.info(f"[OK] Kokoro TTS model initialized in {init_time:.2f}s")
 
         except Exception as e:
-            unified_logger.error(f"❌ Kokoro TTS model initialization failed: {e}")
+            unified_logger.error(f"[ERROR] Kokoro TTS model initialization failed: {e}")
             raise ModelInitializationError(f"Kokoro TTS model initialization failed: {e}")
     
     async def _post_initialization_optimization(self):
         """Perform post-initialization memory optimization"""
         try:
-            unified_logger.info("⚡ Performing post-initialization optimization...")
+            unified_logger.info("[FAST] Performing post-initialization optimization...")
             
             # Clean up any unused memory
             self.gpu_memory_manager.cleanup_unused_memory()
@@ -195,29 +195,29 @@ class UnifiedModelManager:
             
             # Apply recommendations if needed
             if recommendations.get("optimization_level") == "memory_efficient":
-                unified_logger.info("💾 Applying memory-efficient optimizations...")
+                unified_logger.info("[FLOPPY] Applying memory-efficient optimizations...")
                 # Could implement model-specific optimizations here
             
             # Verify both models are working
             await self._verify_model_functionality()
             
-            unified_logger.info("✅ Post-initialization optimization completed")
+            unified_logger.info("[OK] Post-initialization optimization completed")
             
         except Exception as e:
-            unified_logger.error(f"❌ Post-initialization optimization failed: {e}")
+            unified_logger.error(f"[ERROR] Post-initialization optimization failed: {e}")
             raise ModelInitializationError(f"Post-initialization optimization failed: {e}")
     
     async def _verify_model_functionality(self):
         """Verify both models are functioning correctly"""
         try:
-            unified_logger.info("🔍 Verifying model functionality...")
+            unified_logger.info("[SEARCH] Verifying model functionality...")
             
             # Test Voxtral model
             if self.voxtral_model and self.voxtral_model.is_initialized:
                 model_info = self.voxtral_model.get_model_info()
                 if model_info.get("status") != "initialized":
                     raise ModelInitializationError("Voxtral model verification failed")
-                unified_logger.info("✅ Voxtral model verification passed")
+                unified_logger.info("[OK] Voxtral model verification passed")
             
             # Test Kokoro TTS model
             if self.kokoro_model and self.kokoro_model.is_initialized:
@@ -225,12 +225,12 @@ class UnifiedModelManager:
                 if not model_info.get("is_initialized"):
                     raise ModelInitializationError("Kokoro TTS model verification failed")
 
-                unified_logger.info("✅ Kokoro TTS model verification passed")
+                unified_logger.info("[OK] Kokoro TTS model verification passed")
             
-            unified_logger.info("✅ All model functionality verified")
+            unified_logger.info("[OK] All model functionality verified")
             
         except Exception as e:
-            unified_logger.error(f"❌ Model verification failed: {e}")
+            unified_logger.error(f"[ERROR] Model verification failed: {e}")
             raise ModelInitializationError(f"Model verification failed: {e}")
     
     async def _log_memory_statistics(self):
@@ -239,7 +239,7 @@ class UnifiedModelManager:
             if self.gpu_memory_manager:
                 stats = self.gpu_memory_manager.get_memory_stats()
                 
-                unified_logger.info("📊 Final Memory Statistics:")
+                unified_logger.info("[STATS] Final Memory Statistics:")
                 unified_logger.info(f"   Total VRAM: {stats.total_vram_gb:.2f} GB")
                 unified_logger.info(f"   Used VRAM: {stats.used_vram_gb:.2f} GB")
                 unified_logger.info(f"   Available VRAM: {stats.available_vram_gb:.2f} GB")
@@ -255,12 +255,12 @@ class UnifiedModelManager:
                 unified_logger.info(f"   Memory Efficiency: {memory_efficiency:.1f}%")
                 
         except Exception as e:
-            unified_logger.warning(f"⚠️ Failed to log memory statistics: {e}")
+            unified_logger.warning(f"[WARN] Failed to log memory statistics: {e}")
     
     async def _cleanup_partial_initialization(self):
         """Cleanup resources from partial initialization"""
         try:
-            unified_logger.info("🧹 Cleaning up partial initialization...")
+            unified_logger.info("[CLEANUP] Cleaning up partial initialization...")
             
             if self.kokoro_model:
                 await self.kokoro_model.cleanup()
@@ -276,10 +276,10 @@ class UnifiedModelManager:
                 self.gpu_memory_manager.cleanup_unused_memory()
             
             self.is_initialized = False
-            unified_logger.info("✅ Partial initialization cleanup completed")
+            unified_logger.info("[OK] Partial initialization cleanup completed")
             
         except Exception as e:
-            unified_logger.error(f"❌ Cleanup failed: {e}")
+            unified_logger.error(f"[ERROR] Cleanup failed: {e}")
     
     async def get_voxtral_model(self) -> Optional[VoxtralModel]:
         """Get initialized Voxtral model"""
@@ -296,7 +296,7 @@ class UnifiedModelManager:
     async def cleanup_gpu_memory(self) -> None:
         """Cleanup GPU memory and run garbage collection"""
         try:
-            unified_logger.info("🧹 Cleaning up GPU memory...")
+            unified_logger.info("[CLEANUP] Cleaning up GPU memory...")
             
             if self.gpu_memory_manager:
                 self.gpu_memory_manager.cleanup_unused_memory()
@@ -307,10 +307,10 @@ class UnifiedModelManager:
             
             gc.collect()
             
-            unified_logger.info("✅ GPU memory cleanup completed")
+            unified_logger.info("[OK] GPU memory cleanup completed")
             
         except Exception as e:
-            unified_logger.error(f"❌ GPU memory cleanup failed: {e}")
+            unified_logger.error(f"[ERROR] GPU memory cleanup failed: {e}")
     
     def get_memory_stats(self) -> Dict[str, Any]:
         """Get comprehensive memory usage statistics"""
@@ -344,7 +344,7 @@ class UnifiedModelManager:
             }
             
         except Exception as e:
-            unified_logger.error(f"❌ Failed to get memory stats: {e}")
+            unified_logger.error(f"[ERROR] Failed to get memory stats: {e}")
             return {"error": str(e)}
     
     def get_model_info(self) -> Dict[str, Any]:
@@ -376,13 +376,13 @@ class UnifiedModelManager:
             return info
             
         except Exception as e:
-            unified_logger.error(f"❌ Failed to get model info: {e}")
+            unified_logger.error(f"[ERROR] Failed to get model info: {e}")
             return {"error": str(e)}
     
     async def shutdown(self):
         """Shutdown and cleanup all resources"""
         try:
-            unified_logger.info("🛑 Shutting down Unified Model Manager...")
+            unified_logger.info("[EMOJI] Shutting down Unified Model Manager...")
             
             # Cleanup Kokoro model
             if self.kokoro_model:
@@ -406,10 +406,10 @@ class UnifiedModelManager:
             self.initialization_times.clear()
             self.memory_usage.clear()
             
-            unified_logger.info("✅ Unified Model Manager shutdown completed")
+            unified_logger.info("[OK] Unified Model Manager shutdown completed")
             
         except Exception as e:
-            unified_logger.error(f"❌ Shutdown failed: {e}")
+            unified_logger.error(f"[ERROR] Shutdown failed: {e}")
 
 # Global unified model manager instance
 unified_model_manager = UnifiedModelManager()

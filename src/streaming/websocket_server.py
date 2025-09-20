@@ -141,7 +141,7 @@ class WebSocketServer:
             voice_preference = data.get("voice", None)
             speed_preference = data.get("speed", None)
 
-            logger.info(f"🗣️ Processing speech-to-speech conversation: {conversation_id}")
+            logger.info(f"[SPEAK] Processing speech-to-speech conversation: {conversation_id}")
 
             # Send processing status
             await self.send_message(websocket, {
@@ -212,7 +212,7 @@ class WebSocketServer:
                 "is_silence": result.get('is_silence', False)
             })
 
-            logger.info(f"✅ Speech-to-speech conversation {conversation_id} completed in {result['total_latency_ms']:.1f}ms")
+            logger.info(f"[OK] Speech-to-speech conversation {conversation_id} completed in {result['total_latency_ms']:.1f}ms")
 
             # Update health check status with latest performance
             try:
@@ -226,7 +226,7 @@ class WebSocketServer:
                 logger.debug(f"Could not update speech-to-speech health status: {e}")
 
         except Exception as e:
-            logger.error(f"❌ Error in speech-to-speech processing: {e}")
+            logger.error(f"[ERROR] Error in speech-to-speech processing: {e}")
             await self.send_message(websocket, {
                 "type": "error",
                 "conversation_id": data.get("conversation_id", "unknown"),
@@ -300,9 +300,9 @@ class WebSocketServer:
 
         # Initialize Speech-to-Speech pipeline if enabled
         if config.speech_to_speech.enabled and not speech_to_speech_pipeline.is_initialized:
-            logger.info("🔄 Initializing Speech-to-Speech pipeline...")
+            logger.info("[EMOJI] Initializing Speech-to-Speech pipeline...")
             await speech_to_speech_pipeline.initialize()
-            logger.info("✅ Speech-to-Speech pipeline ready for conversational AI")
+            logger.info("[OK] Speech-to-Speech pipeline ready for conversational AI")
 
             # Update health check status
             try:
@@ -312,9 +312,9 @@ class WebSocketServer:
                     "initialized": speech_to_speech_pipeline.is_initialized,
                     "info": pipeline_info
                 })
-                logger.info("📊 Speech-to-Speech status updated in health check system")
+                logger.info("[STATS] Speech-to-Speech status updated in health check system")
             except Exception as e:
-                logger.warning(f"⚠️ Could not update speech-to-speech health status: {e}")
+                logger.warning(f"[WARN] Could not update speech-to-speech health status: {e}")
         
         # Start WebSocket server with updated API
         async with websockets.asyncio.server.serve(

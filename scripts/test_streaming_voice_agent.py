@@ -59,7 +59,7 @@ class StreamingVoiceAgentTester:
     
     async def test_streaming_response(self) -> Dict[str, Any]:
         """Test streaming token generation and word-level TTS triggering"""
-        logger.info("🧪 Testing streaming response generation...")
+        logger.info("[EMOJI] Testing streaming response generation...")
         
         test_start = time.time()
         results = {
@@ -87,7 +87,7 @@ class StreamingVoiceAgentTester:
                 }
                 
                 await websocket.send(json.dumps(message))
-                logger.info("📤 Sent streaming audio request")
+                logger.info("[EMOJI] Sent streaming audio request")
                 
                 first_word_received = False
                 words_received = []
@@ -107,26 +107,26 @@ class StreamingVoiceAgentTester:
                                 first_word_latency = (time.time() - test_start) * 1000
                                 results['first_word_latency_ms'] = first_word_latency
                                 first_word_received = True
-                                logger.info(f"⚡ First words received in {first_word_latency:.1f}ms: '{data.get('text', '')}'")
+                                logger.info(f"[FAST] First words received in {first_word_latency:.1f}ms: '{data.get('text', '')}'")
                             
                             words_received.append(data.get('text', ''))
-                            logger.info(f"📝 Words: '{data.get('text', '')}'")
+                            logger.info(f"[NOTE] Words: '{data.get('text', '')}'")
                         
                         elif data.get('type') == 'streaming_audio':
                             audio_chunks.append(data)
                             if len(audio_chunks) % 5 == 0:  # Log every 5th chunk
-                                logger.info(f"🎵 Audio chunk {len(audio_chunks)} received")
+                                logger.info(f"[AUDIO] Audio chunk {len(audio_chunks)} received")
                         
                         elif data.get('type') == 'streaming_complete':
                             results['streaming_complete'] = True
                             results['total_words_received'] = len(words_received)
                             results['audio_chunks_received'] = len(audio_chunks)
-                            logger.info(f"✅ Streaming complete: {len(words_received)} words, {len(audio_chunks)} audio chunks")
+                            logger.info(f"[OK] Streaming complete: {len(words_received)} words, {len(audio_chunks)} audio chunks")
                             break
                         
                         elif data.get('type') == 'error':
                             results['error'] = data.get('message', 'Unknown error')
-                            logger.error(f"❌ Streaming error: {results['error']}")
+                            logger.error(f"[ERROR] Streaming error: {results['error']}")
                             break
                     
                     except asyncio.TimeoutError:
@@ -142,20 +142,20 @@ class StreamingVoiceAgentTester:
                     total_time = (time.time() - test_start) * 1000
                     self.performance_metrics['total_streaming_latency'].append(total_time)
                     
-                    logger.info(f"✅ Streaming test successful: {results['first_word_latency_ms']:.1f}ms first word")
+                    logger.info(f"[OK] Streaming test successful: {results['first_word_latency_ms']:.1f}ms first word")
                 else:
                     results['error'] = "Streaming did not complete successfully"
-                    logger.error(f"❌ Streaming test failed: {results['error']}")
+                    logger.error(f"[ERROR] Streaming test failed: {results['error']}")
         
         except Exception as e:
             results['error'] = str(e)
-            logger.error(f"❌ Streaming test exception: {e}")
+            logger.error(f"[ERROR] Streaming test exception: {e}")
         
         return results
     
     async def test_interruption_detection(self) -> Dict[str, Any]:
         """Test user interruption detection and TTS cancellation"""
-        logger.info("🧪 Testing interruption detection...")
+        logger.info("[EMOJI] Testing interruption detection...")
         
         results = {
             'success': False,
@@ -179,7 +179,7 @@ class StreamingVoiceAgentTester:
                 }
                 
                 await websocket.send(json.dumps(message))
-                logger.info("📤 Started streaming session for interruption test")
+                logger.info("[EMOJI] Started streaming session for interruption test")
                 
                 # Wait for TTS to start
                 await asyncio.sleep(2.0)
@@ -198,7 +198,7 @@ class StreamingVoiceAgentTester:
                 }
                 
                 await websocket.send(json.dumps(interrupt_message))
-                logger.info("🛑 Sent interruption signal")
+                logger.info("[EMOJI] Sent interruption signal")
                 
                 # Listen for interruption response
                 timeout = 10
@@ -217,7 +217,7 @@ class StreamingVoiceAgentTester:
                             
                             self.performance_metrics['interruption_response_time'].append(response_time)
                             
-                            logger.info(f"✅ Interruption detected in {response_time:.1f}ms")
+                            logger.info(f"[OK] Interruption detected in {response_time:.1f}ms")
                             break
                     
                     except asyncio.TimeoutError:
@@ -225,17 +225,17 @@ class StreamingVoiceAgentTester:
                 
                 if not results['interruption_detected']:
                     results['error'] = "Interruption not detected within timeout"
-                    logger.error("❌ Interruption detection failed")
+                    logger.error("[ERROR] Interruption detection failed")
         
         except Exception as e:
             results['error'] = str(e)
-            logger.error(f"❌ Interruption test exception: {e}")
+            logger.error(f"[ERROR] Interruption test exception: {e}")
         
         return results
     
     async def test_250_token_generation(self) -> Dict[str, Any]:
         """Test 250 token generation with streaming for perceived low latency"""
-        logger.info("🧪 Testing 250 token generation with streaming...")
+        logger.info("[EMOJI] Testing 250 token generation with streaming...")
         
         results = {
             'success': False,
@@ -263,7 +263,7 @@ class StreamingVoiceAgentTester:
                 }
                 
                 await websocket.send(json.dumps(message))
-                logger.info("📤 Sent request for 250 token generation test")
+                logger.info("[EMOJI] Sent request for 250 token generation test")
                 
                 first_word_received = False
                 total_text = ""
@@ -282,14 +282,14 @@ class StreamingVoiceAgentTester:
                                 first_word_latency = (time.time() - test_start) * 1000
                                 results['first_word_latency_ms'] = first_word_latency
                                 first_word_received = True
-                                logger.info(f"⚡ First words in {first_word_latency:.1f}ms")
+                                logger.info(f"[FAST] First words in {first_word_latency:.1f}ms")
                             
                             words = data.get('text', '')
                             total_text += " " + words
                             word_count += len(words.split())
                             
                             if word_count % 10 == 0:  # Log every 10 words
-                                logger.info(f"📝 {word_count} words received so far...")
+                                logger.info(f"[NOTE] {word_count} words received so far...")
                         
                         elif data.get('type') == 'streaming_complete':
                             total_time = (time.time() - test_start) * 1000
@@ -301,8 +301,8 @@ class StreamingVoiceAgentTester:
                                 results['streaming_effective'] = True
                             
                             results['success'] = True
-                            logger.info(f"✅ Generated {results['tokens_generated']} tokens in {total_time:.1f}ms")
-                            logger.info(f"📊 Streaming effective: {results['streaming_effective']}")
+                            logger.info(f"[OK] Generated {results['tokens_generated']} tokens in {total_time:.1f}ms")
+                            logger.info(f"[STATS] Streaming effective: {results['streaming_effective']}")
                             break
                         
                         elif data.get('type') == 'error':
@@ -317,13 +317,13 @@ class StreamingVoiceAgentTester:
         
         except Exception as e:
             results['error'] = str(e)
-            logger.error(f"❌ 250 token test exception: {e}")
+            logger.error(f"[ERROR] 250 token test exception: {e}")
         
         return results
     
     async def run_comprehensive_tests(self) -> Dict[str, Any]:
         """Run all streaming tests and generate comprehensive report"""
-        logger.info("🚀 Starting comprehensive streaming voice agent tests...")
+        logger.info("[INIT] Starting comprehensive streaming voice agent tests...")
         
         # Test 1: Basic streaming response
         streaming_result = await self.test_streaming_response()
@@ -401,25 +401,25 @@ class StreamingVoiceAgentTester:
         if self.test_results.get('streaming_response', {}).get('success'):
             first_word_latency = self.test_results['streaming_response'].get('first_word_latency_ms', 0)
             if first_word_latency > 100:
-                recommendations.append(f"⚠️ First word latency ({first_word_latency:.1f}ms) exceeds 100ms target")
+                recommendations.append(f"[WARN] First word latency ({first_word_latency:.1f}ms) exceeds 100ms target")
             else:
-                recommendations.append(f"✅ First word latency ({first_word_latency:.1f}ms) meets target")
+                recommendations.append(f"[OK] First word latency ({first_word_latency:.1f}ms) meets target")
         
         # Check interruption detection
         if self.test_results.get('interruption_detection', {}).get('success'):
             response_time = self.test_results['interruption_detection'].get('response_time_ms', 0)
             if response_time > 100:
-                recommendations.append(f"⚠️ Interruption response time ({response_time:.1f}ms) exceeds 100ms target")
+                recommendations.append(f"[WARN] Interruption response time ({response_time:.1f}ms) exceeds 100ms target")
             else:
-                recommendations.append(f"✅ Interruption response time ({response_time:.1f}ms) meets target")
+                recommendations.append(f"[OK] Interruption response time ({response_time:.1f}ms) meets target")
         
         # Check token generation
         if self.test_results.get('token_generation', {}).get('success'):
             streaming_effective = self.test_results['token_generation'].get('streaming_effective', False)
             if streaming_effective:
-                recommendations.append("✅ 250 token generation with effective streaming")
+                recommendations.append("[OK] 250 token generation with effective streaming")
             else:
-                recommendations.append("⚠️ 250 token generation streaming needs optimization")
+                recommendations.append("[WARN] 250 token generation streaming needs optimization")
         
         return recommendations
 
@@ -436,7 +436,7 @@ async def main():
     tester = StreamingVoiceAgentTester(args.server)
     
     try:
-        logger.info(f"🔗 Connecting to server: {args.server}")
+        logger.info(f"[EMOJI] Connecting to server: {args.server}")
         report = await tester.run_comprehensive_tests()
         
         # Save results
@@ -446,28 +446,28 @@ async def main():
         
         # Print summary
         print("\n" + "="*60)
-        print("🎯 STREAMING VOICE AGENT TEST RESULTS")
+        print("[TARGET] STREAMING VOICE AGENT TEST RESULTS")
         print("="*60)
         
         success_summary = report['success_summary']
-        print(f"Streaming Response: {'✅' if success_summary['streaming_response'] else '❌'}")
-        print(f"Interruption Detection: {'✅' if success_summary['interruption_detection'] else '❌'}")
-        print(f"250 Token Generation: {'✅' if success_summary['token_generation'] else '❌'}")
-        print(f"Overall Success: {'✅' if success_summary['overall_success'] else '❌'}")
+        print(f"Streaming Response: {'[OK]' if success_summary['streaming_response'] else '[ERROR]'}")
+        print(f"Interruption Detection: {'[OK]' if success_summary['interruption_detection'] else '[ERROR]'}")
+        print(f"250 Token Generation: {'[OK]' if success_summary['token_generation'] else '[ERROR]'}")
+        print(f"Overall Success: {'[OK]' if success_summary['overall_success'] else '[ERROR]'}")
         
-        print(f"\n📊 PERFORMANCE METRICS:")
+        print(f"\n[STATS] PERFORMANCE METRICS:")
         for metric, data in report['performance_metrics'].items():
-            target_status = "✅" if data['target_met'] else "❌"
+            target_status = "[OK]" if data['target_met'] else "[ERROR]"
             print(f"  {metric}: {data['avg_ms']:.1f}ms avg {target_status}")
         
-        print(f"\n💡 RECOMMENDATIONS:")
+        print(f"\n[IDEA] RECOMMENDATIONS:")
         for rec in report['recommendations']:
             print(f"  {rec}")
         
-        print(f"\n💾 Results saved to: {args.output}")
+        print(f"\n[FLOPPY] Results saved to: {args.output}")
         
     except Exception as e:
-        logger.error(f"❌ Test execution failed: {e}")
+        logger.error(f"[ERROR] Test execution failed: {e}")
         return 1
     
     return 0

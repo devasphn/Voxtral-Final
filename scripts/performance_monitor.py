@@ -35,7 +35,7 @@ class PerformanceMonitor:
     
     def check_system_readiness(self) -> bool:
         """Check if system is ready for optimal performance"""
-        print("🔍 SYSTEM READINESS CHECK")
+        print("[SEARCH] SYSTEM READINESS CHECK")
         print("=" * 50)
         
         # Setup optimizations
@@ -45,15 +45,15 @@ class PerformanceMonitor:
         # Get optimization report
         report = ultra_optimizer.get_optimization_report()
         
-        print(f"🎮 CUDA Available: {'✅' if report['optimization_status']['cuda_available'] else '❌'}")
-        print(f"🔥 torch.compile: {'✅' if report['optimization_status']['torch_compile'] else '❌'}")
-        print(f"⚡ Flash Attention: {'✅' if report['optimization_status']['flash_attention'] else '❌'}")
-        print(f"🧠 cuDNN Enabled: {'✅' if report['optimization_status']['cudnn_enabled'] else '❌'}")
+        print(f"[GAME] CUDA Available: {'[OK]' if report['optimization_status']['cuda_available'] else '[ERROR]'}")
+        print(f"[HOT] torch.compile: {'[OK]' if report['optimization_status']['torch_compile'] else '[ERROR]'}")
+        print(f"[FAST] Flash Attention: {'[OK]' if report['optimization_status']['flash_attention'] else '[ERROR]'}")
+        print(f"[BRAIN] cuDNN Enabled: {'[OK]' if report['optimization_status']['cudnn_enabled'] else '[ERROR]'}")
         
         # System performance
         perf = report['system_performance']
         if 'error' not in perf:
-            print(f"\n💻 SYSTEM PERFORMANCE:")
+            print(f"\n[LAPTOP] SYSTEM PERFORMANCE:")
             print(f"   CPU Usage: {perf['cpu_usage']:.1f}%")
             print(f"   Memory Usage: {perf['memory_usage']:.1f}%")
             print(f"   Available Memory: {perf['available_memory_gb']:.1f} GB")
@@ -65,19 +65,19 @@ class PerformanceMonitor:
                 print(f"   GPU Temperature: {perf['gpu_temperature']:.0f}°C")
         
         # Recommendations
-        print(f"\n📋 RECOMMENDATIONS:")
+        print(f"\n[EMOJI] RECOMMENDATIONS:")
         for rec in report['recommendations']:
             print(f"   {rec}")
         
         # Overall readiness
         ready = cuda_ok and pytorch_ok and report['optimization_status']['cuda_available']
-        print(f"\n🎯 SYSTEM READY: {'✅ YES' if ready else '❌ NO'}")
+        print(f"\n[TARGET] SYSTEM READY: {'[OK] YES' if ready else '[ERROR] NO'}")
         
         return ready
     
     def test_latency_targets(self) -> Dict[str, bool]:
         """Test if system meets latency targets"""
-        print("\n🧪 LATENCY TARGET TESTING")
+        print("\n[EMOJI] LATENCY TARGET TESTING")
         print("=" * 50)
         
         results = {}
@@ -110,14 +110,14 @@ class PerformanceMonitor:
             meets_target = latency <= target
             results[operation] = meets_target
             
-            status = "✅" if meets_target else "❌"
+            status = "[OK]" if meets_target else "[ERROR]"
             print(f"   {operation}: {latency:.1f}ms (target: {target}ms) {status}")
         
         return results
     
     async def monitor_realtime(self, duration_seconds: int = 60):
         """Monitor system performance in real-time"""
-        print(f"\n📊 REAL-TIME MONITORING ({duration_seconds}s)")
+        print(f"\n[STATS] REAL-TIME MONITORING ({duration_seconds}s)")
         print("=" * 50)
         
         self.monitoring = True
@@ -134,7 +134,7 @@ class PerformanceMonitor:
                 
                 # Display current metrics
                 if 'error' not in perf:
-                    print(f"\r⏱️  CPU: {perf['cpu_usage']:5.1f}% | "
+                    print(f"\r[TIME]  CPU: {perf['cpu_usage']:5.1f}% | "
                           f"RAM: {perf['memory_usage']:5.1f}% | "
                           f"GPU: {perf.get('gpu_load', 0):5.1f}% | "
                           f"VRAM: {perf.get('gpu_memory_util', 0):5.1f}%", end="")
@@ -142,7 +142,7 @@ class PerformanceMonitor:
                 await asyncio.sleep(1)
                 
         except KeyboardInterrupt:
-            print("\n\n⏹️  Monitoring stopped by user")
+            print("\n\n⏹[EMOJI]  Monitoring stopped by user")
         
         self.monitoring = False
         
@@ -163,7 +163,7 @@ class PerformanceMonitor:
                     'optimization_report': ultra_optimizer.get_optimization_report()
                 }, f, indent=2)
             
-            print(f"\n💾 Metrics saved to {self.output_file}")
+            print(f"\n[FLOPPY] Metrics saved to {self.output_file}")
             
         except Exception as e:
             logger.error(f"Failed to save metrics: {e}")
@@ -173,7 +173,7 @@ class PerformanceMonitor:
         if not self.metrics_history:
             return
         
-        print("\n📈 PERFORMANCE SUMMARY")
+        print("\n[CHART] PERFORMANCE SUMMARY")
         print("=" * 50)
         
         # Calculate averages
@@ -190,20 +190,20 @@ class PerformanceMonitor:
             print(f"Average VRAM Usage: {vram_avg:.1f}%")
         
         # Performance assessment
-        print(f"\n🎯 PERFORMANCE ASSESSMENT:")
+        print(f"\n[TARGET] PERFORMANCE ASSESSMENT:")
         if cpu_avg < 50:
-            print("   ✅ CPU usage optimal")
+            print("   [OK] CPU usage optimal")
         elif cpu_avg < 80:
-            print("   ⚠️ CPU usage moderate")
+            print("   [WARN] CPU usage moderate")
         else:
-            print("   ❌ CPU usage high")
+            print("   [ERROR] CPU usage high")
         
         if mem_avg < 70:
-            print("   ✅ Memory usage optimal")
+            print("   [OK] Memory usage optimal")
         elif mem_avg < 90:
-            print("   ⚠️ Memory usage moderate")
+            print("   [WARN] Memory usage moderate")
         else:
-            print("   ❌ Memory usage high")
+            print("   [ERROR] Memory usage high")
 
 def main():
     """Main monitoring function"""
@@ -228,13 +228,13 @@ def main():
     
     if not any([args.check, args.test, args.monitor]):
         # Default: run all checks
-        print("🚀 VOXTRAL PERFORMANCE MONITOR")
+        print("[INIT] VOXTRAL PERFORMANCE MONITOR")
         print("=" * 50)
         
         monitor.check_system_readiness()
         monitor.test_latency_targets()
         
-        print("\n💡 Use --monitor 60 to start real-time monitoring")
+        print("\n[IDEA] Use --monitor 60 to start real-time monitoring")
 
 if __name__ == "__main__":
     main()

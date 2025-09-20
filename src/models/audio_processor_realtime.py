@@ -56,7 +56,7 @@ class AudioProcessor:
         min_n_fft = 2 * (self.n_mels - 1)
         if self.n_fft < min_n_fft:
             self.n_fft = 1024
-            audio_logger.info(f"📈 Adjusted n_fft to {self.n_fft} to accommodate {self.n_mels} mel bins")
+            audio_logger.info(f"[CHART] Adjusted n_fft to {self.n_fft} to accommodate {self.n_mels} mel bins")
         
         # Initialize mel spectrogram transform (matching Voxtral architecture)
         self.mel_transform = torchaudio.transforms.MelSpectrogram(
@@ -72,14 +72,14 @@ class AudioProcessor:
             mel_scale='htk'
         )
 
-        audio_logger.info(f"🔊 AudioProcessor initialized for PRODUCTION real-time streaming:")
-        audio_logger.info(f"   📊 Sample rate: {self.sample_rate} Hz")
-        audio_logger.info(f"   🎵 Mel bins: {self.n_mels}")
-        audio_logger.info(f"   📐 FFT size: {self.n_fft}")
-        audio_logger.info(f"   ⏱️  Hop length: {self.hop_length}")
-        audio_logger.info(f"   🪟 Window length: {self.win_length}")
-        audio_logger.info(f"   🎙️  VAD threshold: {self.vad_threshold}")
-        audio_logger.info(f"   🔇 Energy threshold: {self.energy_threshold}")
+        audio_logger.info(f"[SPEAKER] AudioProcessor initialized for PRODUCTION real-time streaming:")
+        audio_logger.info(f"   [STATS] Sample rate: {self.sample_rate} Hz")
+        audio_logger.info(f"   [AUDIO] Mel bins: {self.n_mels}")
+        audio_logger.info(f"   [GEOM] FFT size: {self.n_fft}")
+        audio_logger.info(f"   [TIME]  Hop length: {self.hop_length}")
+        audio_logger.info(f"   [WINDOW] Window length: {self.win_length}")
+        audio_logger.info(f"   [VAD]  VAD threshold: {self.vad_threshold}")
+        audio_logger.info(f"   [MUTE] Energy threshold: {self.energy_threshold}")
     
     def detect_voice_activity(self, audio_data: np.ndarray, chunk_id: int = None) -> dict:
         """
@@ -196,14 +196,14 @@ class AudioProcessor:
             
             # Log VAD decision
             if final_voice_detected:
-                audio_logger.debug(f"🎙️ Chunk {chunk_id}: VOICE detected (conf: {confidence:.2f}, RMS: {rms_energy:.4f})")
+                audio_logger.debug(f"[VAD] Chunk {chunk_id}: VOICE detected (conf: {confidence:.2f}, RMS: {rms_energy:.4f})")
             else:
-                audio_logger.debug(f"🔇 Chunk {chunk_id}: SILENCE detected (RMS: {rms_energy:.4f}, silence: {silence_duration_ms:.0f}ms)")
+                audio_logger.debug(f"[MUTE] Chunk {chunk_id}: SILENCE detected (RMS: {rms_energy:.4f}, silence: {silence_duration_ms:.0f}ms)")
             
             return vad_result
             
         except Exception as e:
-            audio_logger.error(f"❌ VAD error for chunk {chunk_id}: {e}")
+            audio_logger.error(f"[ERROR] VAD error for chunk {chunk_id}: {e}")
             return {
                 "has_voice": False,
                 "confidence": 0.0,
@@ -227,49 +227,49 @@ class AudioProcessor:
         self.chunk_counter += 1
         
         try:
-            audio_logger.debug(f"🎵 Processing real-time audio chunk {chunk_id}")
-            audio_logger.debug(f"   📏 Input shape: {audio_data.shape}")
-            audio_logger.debug(f"   📊 Input dtype: {audio_data.dtype}")
-            audio_logger.debug(f"   📈 Input range: [{np.min(audio_data):.4f}, {np.max(audio_data):.4f}]")
+            audio_logger.debug(f"[AUDIO] Processing real-time audio chunk {chunk_id}")
+            audio_logger.debug(f"   [EMOJI] Input shape: {audio_data.shape}")
+            audio_logger.debug(f"   [STATS] Input dtype: {audio_data.dtype}")
+            audio_logger.debug(f"   [CHART] Input range: [{np.min(audio_data):.4f}, {np.max(audio_data):.4f}]")
             
             # Ensure audio_data is writeable
             if not audio_data.flags.writeable:
                 audio_data = audio_data.copy()
-                audio_logger.debug(f"   🔧 Made audio data writeable for chunk {chunk_id}")
+                audio_logger.debug(f"   [CONFIG] Made audio data writeable for chunk {chunk_id}")
             
             # Convert to float32 if needed
             if audio_data.dtype != np.float32:
                 original_dtype = audio_data.dtype
                 audio_data = audio_data.astype(np.float32)
-                audio_logger.debug(f"   🔄 Converted dtype from {original_dtype} to float32")
+                audio_logger.debug(f"   [EMOJI] Converted dtype from {original_dtype} to float32")
             
             # Check for invalid values
             nan_count = np.sum(np.isnan(audio_data))
             inf_count = np.sum(np.isinf(audio_data))
             if nan_count > 0 or inf_count > 0:
-                audio_logger.warning(f"⚠️  Chunk {chunk_id} has {nan_count} NaN and {inf_count} infinite values - cleaning")
+                audio_logger.warning(f"[WARN]  Chunk {chunk_id} has {nan_count} NaN and {inf_count} infinite values - cleaning")
                 audio_data = np.nan_to_num(audio_data, nan=0.0, posinf=1.0, neginf=-1.0)
             
             # Normalize audio to [-1, 1] range with enhanced handling for real-time
             max_val = np.max(np.abs(audio_data))
-            audio_logger.debug(f"   📊 Max amplitude: {max_val:.6f}")
+            audio_logger.debug(f"   [STATS] Max amplitude: {max_val:.6f}")
             
             if max_val > 1.0:
                 audio_data = audio_data / max_val
-                audio_logger.debug(f"   🔧 Normalized loud audio (max: {max_val:.4f}) for chunk {chunk_id}")
+                audio_logger.debug(f"   [CONFIG] Normalized loud audio (max: {max_val:.4f}) for chunk {chunk_id}")
             elif max_val < 1e-8:
-                audio_logger.warning(f"⚠️  Chunk {chunk_id} is very quiet (max: {max_val:.2e}), amplifying carefully")
+                audio_logger.warning(f"[WARN]  Chunk {chunk_id} is very quiet (max: {max_val:.2e}), amplifying carefully")
                 # More conservative amplification for real-time
                 audio_data = audio_data * 100.0
                 audio_data = np.clip(audio_data, -1.0, 1.0)
             elif max_val < 1e-4:
-                audio_logger.debug(f"   🔊 Quiet audio detected (max: {max_val:.6f}), gentle amplification")
+                audio_logger.debug(f"   [SPEAKER] Quiet audio detected (max: {max_val:.6f}), gentle amplification")
                 audio_data = audio_data * 10.0
                 audio_data = np.clip(audio_data, -1.0, 1.0)
             
             # Resample if necessary (real-time optimized)
             if sample_rate and sample_rate != self.sample_rate:
-                audio_logger.info(f"🔄 Resampling chunk {chunk_id} from {sample_rate}Hz to {self.sample_rate}Hz")
+                audio_logger.info(f"[EMOJI] Resampling chunk {chunk_id} from {sample_rate}Hz to {self.sample_rate}Hz")
                 resample_start = time.time()
                 audio_data = librosa.resample(
                     audio_data, 
@@ -278,7 +278,7 @@ class AudioProcessor:
                     res_type='fast'  # Fast resampling for real-time
                 )
                 resample_time = (time.time() - resample_start) * 1000
-                audio_logger.debug(f"   ⚡ Resampling completed in {resample_time:.1f}ms")
+                audio_logger.debug(f"   [FAST] Resampling completed in {resample_time:.1f}ms")
             
             # Create tensor with explicit copy for writeability
             audio_tensor = torch.from_numpy(audio_data.copy()).float()
@@ -286,12 +286,12 @@ class AudioProcessor:
             # Ensure mono audio
             if len(audio_tensor.shape) > 1:
                 audio_tensor = torch.mean(audio_tensor, dim=0)
-                audio_logger.debug(f"   🎵 Converted to mono audio for chunk {chunk_id}")
+                audio_logger.debug(f"   [AUDIO] Converted to mono audio for chunk {chunk_id}")
             
             # Ensure tensor is contiguous
             if not audio_tensor.is_contiguous():
                 audio_tensor = audio_tensor.contiguous()
-                audio_logger.debug(f"   🔧 Made tensor contiguous for chunk {chunk_id}")
+                audio_logger.debug(f"   [CONFIG] Made tensor contiguous for chunk {chunk_id}")
             
             # Calculate processing metrics
             processing_time = (time.time() - start_time) * 1000
@@ -309,15 +309,15 @@ class AudioProcessor:
             }
             self.processing_history.append(processing_stats)
             
-            audio_logger.info(f"✅ Chunk {chunk_id} preprocessed in {processing_time:.1f}ms ({audio_duration_s:.2f}s audio)")
-            audio_logger.debug(f"   📊 Output shape: {audio_tensor.shape}")
-            audio_logger.debug(f"   📈 Output range: [{torch.min(audio_tensor):.4f}, {torch.max(audio_tensor):.4f}]")
+            audio_logger.info(f"[OK] Chunk {chunk_id} preprocessed in {processing_time:.1f}ms ({audio_duration_s:.2f}s audio)")
+            audio_logger.debug(f"   [STATS] Output shape: {audio_tensor.shape}")
+            audio_logger.debug(f"   [CHART] Output range: [{torch.min(audio_tensor):.4f}, {torch.max(audio_tensor):.4f}]")
             
             return audio_tensor
             
         except Exception as e:
             processing_time = (time.time() - start_time) * 1000
-            audio_logger.error(f"❌ Error preprocessing chunk {chunk_id} after {processing_time:.1f}ms: {e}")
+            audio_logger.error(f"[ERROR] Error preprocessing chunk {chunk_id} after {processing_time:.1f}ms: {e}")
             raise
     
     def validate_realtime_chunk(self, audio_data: np.ndarray, chunk_id: int = None) -> bool:
@@ -334,30 +334,30 @@ class AudioProcessor:
         chunk_id = chunk_id or f"chunk_{int(time.time()*1000)}"
         
         try:
-            audio_logger.debug(f"🔍 Validating real-time chunk {chunk_id}")
+            audio_logger.debug(f"[SEARCH] Validating real-time chunk {chunk_id}")
             
             # Check if audio data exists and is not empty
             if audio_data is None or len(audio_data) == 0:
-                audio_logger.warning(f"⚠️  Chunk {chunk_id} is empty")
+                audio_logger.warning(f"[WARN]  Chunk {chunk_id} is empty")
                 return False
             
             # Check for valid data types
             if not isinstance(audio_data, np.ndarray):
-                audio_logger.warning(f"⚠️  Chunk {chunk_id} is not a numpy array: {type(audio_data)}")
+                audio_logger.warning(f"[WARN]  Chunk {chunk_id} is not a numpy array: {type(audio_data)}")
                 return False
             
             # Check for NaN or infinite values
             nan_count = np.sum(np.isnan(audio_data))
             inf_count = np.sum(np.isinf(audio_data))
             if nan_count > 0 or inf_count > 0:
-                audio_logger.warning(f"⚠️  Chunk {chunk_id} contains {nan_count} NaN and {inf_count} inf values")
+                audio_logger.warning(f"[WARN]  Chunk {chunk_id} contains {nan_count} NaN and {inf_count} inf values")
                 # Clean the data first
                 audio_data = np.nan_to_num(audio_data, nan=0.0, posinf=1.0, neginf=-1.0)
             
             # Check for reasonable audio length - more permissive for real-time
             min_samples = int(0.05 * self.sample_rate)  # At least 50ms
             if len(audio_data) < min_samples:
-                audio_logger.warning(f"⚠️  Chunk {chunk_id} too short: {len(audio_data)} samples, minimum: {min_samples}")
+                audio_logger.warning(f"[WARN]  Chunk {chunk_id} too short: {len(audio_data)} samples, minimum: {min_samples}")
                 return False
             
             # CRITICAL: Apply Voice Activity Detection
@@ -368,14 +368,14 @@ class AudioProcessor:
             confidence = vad_result.get("confidence", 0.0)
             
             if has_voice:
-                audio_logger.debug(f"✅ Chunk {chunk_id} validation passed - VOICE detected (confidence: {confidence:.2f})")
+                audio_logger.debug(f"[OK] Chunk {chunk_id} validation passed - VOICE detected (confidence: {confidence:.2f})")
             else:
-                audio_logger.debug(f"🔇 Chunk {chunk_id} validation failed - SILENCE detected")
+                audio_logger.debug(f"[MUTE] Chunk {chunk_id} validation failed - SILENCE detected")
                 
             return has_voice
             
         except Exception as e:
-            audio_logger.error(f"❌ Error validating chunk {chunk_id}: {e}")
+            audio_logger.error(f"[ERROR] Error validating chunk {chunk_id}: {e}")
             return False
     
     def generate_log_mel_spectrogram(self, audio_tensor: torch.Tensor) -> torch.Tensor:
@@ -383,7 +383,7 @@ class AudioProcessor:
         Generate log-mel spectrogram optimized for real-time processing
         """
         try:
-            audio_logger.debug(f"🎵 Generating log-mel spectrogram")
+            audio_logger.debug(f"[AUDIO] Generating log-mel spectrogram")
             start_time = time.time()
             
             # Ensure audio tensor has the right shape
@@ -397,13 +397,13 @@ class AudioProcessor:
             log_mel_spec = torch.log(mel_spec + 1e-8)
             
             processing_time = (time.time() - start_time) * 1000
-            audio_logger.debug(f"✅ Log-mel spectrogram generated in {processing_time:.1f}ms")
-            audio_logger.debug(f"   📊 Output shape: {log_mel_spec.shape}")
+            audio_logger.debug(f"[OK] Log-mel spectrogram generated in {processing_time:.1f}ms")
+            audio_logger.debug(f"   [STATS] Output shape: {log_mel_spec.shape}")
             
             return log_mel_spec.squeeze(0)  # Remove batch dimension
             
         except Exception as e:
-            audio_logger.error(f"❌ Error generating log-mel spectrogram: {e}")
+            audio_logger.error(f"[ERROR] Error generating log-mel spectrogram: {e}")
             raise
     
     def get_processing_stats(self) -> dict:
@@ -445,7 +445,7 @@ class AudioProcessor:
         self.consecutive_silent_chunks = 0
         self.consecutive_voice_chunks = 0
         self.last_voice_activity = False
-        audio_logger.info("🔄 VAD state reset for new session")
+        audio_logger.info("[EMOJI] VAD state reset for new session")
     
     def adjust_vad_sensitivity(self, sensitivity: str = "medium"):
         """
@@ -459,7 +459,7 @@ class AudioProcessor:
             self.energy_threshold = 8e-6
             self.min_voice_duration_ms = 600
             self.spectral_centroid_threshold = 600
-            audio_logger.info("🔊 VAD sensitivity set to LOW (noisy environment)")
+            audio_logger.info("[SPEAKER] VAD sensitivity set to LOW (noisy environment)")
 
         elif sensitivity == "high":  # Quiet environment - more sensitive
             self.vad_threshold = 0.008
@@ -467,7 +467,7 @@ class AudioProcessor:
             self.min_voice_duration_ms = 150  # OPTIMIZED: Even faster for quiet environments
             self.min_silence_duration_ms = 600  # OPTIMIZED: Faster processing
             self.spectral_centroid_threshold = 200
-            audio_logger.info("🔇 VAD sensitivity set to HIGH (quiet environment - optimized)")
+            audio_logger.info("[MUTE] VAD sensitivity set to HIGH (quiet environment - optimized)")
 
         else:  # Medium (default) - OPTIMIZED for real-time responsiveness
             self.vad_threshold = 0.012
@@ -475,7 +475,7 @@ class AudioProcessor:
             self.min_voice_duration_ms = 200  # OPTIMIZED: Faster trigger
             self.min_silence_duration_ms = 800  # OPTIMIZED: Faster processing
             self.spectral_centroid_threshold = 350
-            audio_logger.info("🎙️ VAD sensitivity set to MEDIUM (optimized for real-time responsiveness)")
+            audio_logger.info("[VAD] VAD sensitivity set to MEDIUM (optimized for real-time responsiveness)")
     
     # Legacy methods for backward compatibility
     def preprocess_audio(self, audio_data: np.ndarray, sample_rate: Optional[int] = None) -> torch.Tensor:
@@ -500,7 +500,7 @@ class AudioProcessor:
             chunk_samples = int(chunk_duration * self.sample_rate)
             chunks = []
             
-            audio_logger.debug(f"🔪 Chunking audio into {chunk_duration}s segments")
+            audio_logger.debug(f"[EMOJI] Chunking audio into {chunk_duration}s segments")
             
             for i, start_idx in enumerate(range(0, len(audio_tensor), chunk_samples)):
                 end_idx = min(start_idx + chunk_samples, len(audio_tensor))
@@ -510,22 +510,22 @@ class AudioProcessor:
                 if len(chunk) < chunk_samples and i > 0:
                     padding = chunk_samples - len(chunk)
                     chunk = torch.cat([chunk, torch.zeros(padding)])
-                    audio_logger.debug(f"   🔧 Padded last chunk with {padding} zeros")
+                    audio_logger.debug(f"   [CONFIG] Padded last chunk with {padding} zeros")
                 
                 chunks.append(chunk)
-                audio_logger.debug(f"   📦 Chunk {i}: {len(chunk)} samples ({len(chunk)/self.sample_rate:.2f}s)")
+                audio_logger.debug(f"   [EMOJI] Chunk {i}: {len(chunk)} samples ({len(chunk)/self.sample_rate:.2f}s)")
             
-            audio_logger.info(f"✅ Audio chunked into {len(chunks)} segments of ~{chunk_duration}s each")
+            audio_logger.info(f"[OK] Audio chunked into {len(chunks)} segments of ~{chunk_duration}s each")
             return chunks
             
         except Exception as e:
-            audio_logger.error(f"❌ Error chunking audio: {e}")
+            audio_logger.error(f"[ERROR] Error chunking audio: {e}")
             raise
 
 # FIXED: Add proper main execution block for testing
 if __name__ == "__main__":
     """Test audio processor functionality with VAD"""
-    print("🧪 Testing Audio Processor with VAD...")
+    print("[EMOJI] Testing Audio Processor with VAD...")
     
     try:
         # Initialize processor
@@ -543,35 +543,35 @@ if __name__ == "__main__":
         # Generate silence
         silence_audio = np.random.normal(0, 0.0001, int(sample_rate * duration)).astype(np.float32)
         
-        print(f"📊 Voice audio: {len(voice_audio)} samples")
-        print(f"📊 Silence audio: {len(silence_audio)} samples")
+        print(f"[STATS] Voice audio: {len(voice_audio)} samples")
+        print(f"[STATS] Silence audio: {len(silence_audio)} samples")
         
         # Test VAD on voice
         vad_voice = processor.detect_voice_activity(voice_audio, chunk_id="voice_test")
-        print(f"🎙️ VAD Voice Result: {vad_voice['has_voice']} (confidence: {vad_voice['confidence']:.2f})")
+        print(f"[VAD] VAD Voice Result: {vad_voice['has_voice']} (confidence: {vad_voice['confidence']:.2f})")
         
         # Test VAD on silence
         vad_silence = processor.detect_voice_activity(silence_audio, chunk_id="silence_test")
-        print(f"🔇 VAD Silence Result: {vad_silence['has_voice']} (confidence: {vad_silence['confidence']:.2f})")
+        print(f"[MUTE] VAD Silence Result: {vad_silence['has_voice']} (confidence: {vad_silence['confidence']:.2f})")
         
         # Test validation with VAD
         voice_valid = processor.validate_realtime_chunk(voice_audio, chunk_id="voice_validation")
         silence_valid = processor.validate_realtime_chunk(silence_audio, chunk_id="silence_validation")
         
-        print(f"✅ Voice validation: {voice_valid}")
-        print(f"❌ Silence validation: {silence_valid}")
+        print(f"[OK] Voice validation: {voice_valid}")
+        print(f"[ERROR] Silence validation: {silence_valid}")
         
         # Test preprocessing
         if voice_valid:
             voice_tensor = processor.preprocess_realtime_chunk(voice_audio, chunk_id="voice_preprocessing")
-            print(f"✅ Voice preprocessing completed: {voice_tensor.shape}")
+            print(f"[OK] Voice preprocessing completed: {voice_tensor.shape}")
         
         # Test performance stats
         stats = processor.get_processing_stats()
-        print(f"📊 Processing stats: {stats}")
+        print(f"[STATS] Processing stats: {stats}")
         
-        print("🎉 All VAD tests passed!")
+        print("[SUCCESS] All VAD tests passed!")
         
     except Exception as e:
-        print(f"❌ Test failed: {e}")
+        print(f"[ERROR] Test failed: {e}")
         raise

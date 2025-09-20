@@ -43,37 +43,37 @@ class SpeechToSpeechPipeline:
         # ULTRA-LOW LATENCY: Simplified conversation context
         self.conversation_context = deque(maxlen=5)  # Reduced from 10 for faster processing
         
-        pipeline_logger.info(f"🔄 SpeechToSpeechPipeline initialized")
-        pipeline_logger.info(f"   🎯 Target latency: {self.latency_target_ms}ms")
-        pipeline_logger.info(f"   🎭 Emotional TTS: {self.enable_emotional_tts}")
+        pipeline_logger.info(f"[EMOJI] SpeechToSpeechPipeline initialized")
+        pipeline_logger.info(f"   [TARGET] Target latency: {self.latency_target_ms}ms")
+        pipeline_logger.info(f"   [MASK] Emotional TTS: {self.enable_emotional_tts}")
     
     async def initialize(self):
         """Initialize all pipeline components"""
         if self.is_initialized:
-            pipeline_logger.info("🔄 Speech-to-Speech pipeline already initialized")
+            pipeline_logger.info("[EMOJI] Speech-to-Speech pipeline already initialized")
             return
         
         start_time = time.time()
-        pipeline_logger.info("🚀 Initializing Speech-to-Speech pipeline...")
+        pipeline_logger.info("[INIT] Initializing Speech-to-Speech pipeline...")
         
         try:
             # Initialize Voxtral model (STT)
             if not voxtral_model.is_initialized:
-                pipeline_logger.info("📥 Initializing Voxtral STT model...")
+                pipeline_logger.info("[INPUT] Initializing Voxtral STT model...")
                 await voxtral_model.initialize()
             
             # Initialize Kokoro model (TTS)
             if not kokoro_model.is_initialized:
-                pipeline_logger.info("🎵 Initializing Kokoro TTS model...")
+                pipeline_logger.info("[AUDIO] Initializing Kokoro TTS model...")
                 await kokoro_model.initialize()
             
             self.is_initialized = True
             init_time = time.time() - start_time
-            pipeline_logger.info(f"🎉 Speech-to-Speech pipeline fully initialized in {init_time:.2f}s!")
-            pipeline_logger.info("🗣️ Ready for conversational AI interactions")
+            pipeline_logger.info(f"[SUCCESS] Speech-to-Speech pipeline fully initialized in {init_time:.2f}s!")
+            pipeline_logger.info("[SPEAK] Ready for conversational AI interactions")
             
         except Exception as e:
-            pipeline_logger.error(f"❌ Failed to initialize Speech-to-Speech pipeline: {e}")
+            pipeline_logger.error(f"[ERROR] Failed to initialize Speech-to-Speech pipeline: {e}")
             raise
     
     async def process_conversation_turn(self, audio_data: np.ndarray, 
@@ -99,7 +99,7 @@ class SpeechToSpeechPipeline:
         conversation_id = conversation_id or f"conv_{int(time.time() * 1000)}"
         self.total_conversations += 1
         
-        pipeline_logger.info(f"🗣️ Processing conversation turn {conversation_id}")
+        pipeline_logger.info(f"[SPEAK] Processing conversation turn {conversation_id}")
         
         try:
             # ULTRA-LOW LATENCY: Stage 1 - Speech-to-Text (Voxtral) with optimized preprocessing
@@ -135,7 +135,7 @@ class SpeechToSpeechPipeline:
             stt_time = (time.time() - stt_start_time) * 1000
             
             if not stt_result['success'] or stt_result.get('is_silence', False):
-                pipeline_logger.debug(f"🔇 Conversation turn {conversation_id}: STT returned silence")
+                pipeline_logger.debug(f"[MUTE] Conversation turn {conversation_id}: STT returned silence")
                 return {
                     'conversation_id': conversation_id,
                     'transcription': stt_result.get('response', ''),
@@ -151,14 +151,14 @@ class SpeechToSpeechPipeline:
                 }
             
             transcription = stt_result['response']
-            pipeline_logger.info(f"📝 Transcription: '{transcription}'")
+            pipeline_logger.info(f"[NOTE] Transcription: '{transcription}'")
             
             # Stage 2: Generate Response (LLM Processing) - OPTIMIZED
             llm_start_time = time.time()
             response_text = await self._generate_response(transcription, conversation_id)
             llm_time = (time.time() - llm_start_time) * 1000
 
-            pipeline_logger.info(f"💭 Response: '{response_text}'")
+            pipeline_logger.info(f"[EMOJI] Response: '{response_text}'")
 
             # ULTRA-LOW LATENCY: Skip TTS for very short responses
             if len(response_text.strip()) < 2:  # Even more aggressive threshold
@@ -192,13 +192,13 @@ class SpeechToSpeechPipeline:
                     timeout=3.0  # REDUCED: 3 second timeout for ultra-low latency
                 )
             except asyncio.TimeoutError:
-                pipeline_logger.error(f"❌ TTS timeout for conversation {conversation_id}")
+                pipeline_logger.error(f"[ERROR] TTS timeout for conversation {conversation_id}")
                 tts_result = {'success': False, 'error': 'TTS timeout'}
 
             tts_time = (time.time() - tts_start_time) * 1000
             
             if not tts_result['success']:
-                pipeline_logger.error(f"❌ TTS failed for conversation {conversation_id}: {tts_result.get('error', 'Unknown error')}")
+                pipeline_logger.error(f"[ERROR] TTS failed for conversation {conversation_id}: {tts_result.get('error', 'Unknown error')}")
                 # Return text-only response as fallback
                 return {
                     'conversation_id': conversation_id,
@@ -231,11 +231,11 @@ class SpeechToSpeechPipeline:
                 'emotion_analysis': emotion_analysis
             })
 
-            pipeline_logger.info(f"🎭 Emotional analysis: User={emotion_analysis['user_emotion']}, "
+            pipeline_logger.info(f"[MASK] Emotional analysis: User={emotion_analysis['user_emotion']}, "
                                 f"AI={emotion_analysis['response_emotion']}, "
                                 f"Appropriateness={emotion_analysis['appropriateness_score']:.1f}, "
                                 f"Voice={emotion_analysis['voice_selected']}")
-            pipeline_logger.debug(f"🧠 Emotional reasoning: {emotion_analysis['emotional_reasoning']}")
+            pipeline_logger.debug(f"[BRAIN] Emotional reasoning: {emotion_analysis['emotional_reasoning']}")
             
             # Track performance metrics
             performance_stats = {
@@ -249,8 +249,8 @@ class SpeechToSpeechPipeline:
             
             self.pipeline_history.append(performance_stats)
             
-            pipeline_logger.info(f"✅ Conversation turn {conversation_id} completed in {total_latency:.1f}ms "
-                                f"(Target: {self.latency_target_ms}ms, {'✅' if performance_stats['meets_target'] else '⚠️'})")
+            pipeline_logger.info(f"[OK] Conversation turn {conversation_id} completed in {total_latency:.1f}ms "
+                                f"(Target: {self.latency_target_ms}ms, {'[OK]' if performance_stats['meets_target'] else '[WARN]'})")
             
             return {
                 'conversation_id': conversation_id,
@@ -274,7 +274,7 @@ class SpeechToSpeechPipeline:
             
         except Exception as e:
             total_latency = (time.time() - turn_start_time) * 1000
-            pipeline_logger.error(f"❌ Error in conversation turn {conversation_id}: {e}")
+            pipeline_logger.error(f"[ERROR] Error in conversation turn {conversation_id}: {e}")
             
             return {
                 'conversation_id': conversation_id,
@@ -545,7 +545,7 @@ if __name__ == "__main__":
             )
             
             if result['success']:
-                print(f"✅ Pipeline test successful!")
+                print(f"[OK] Pipeline test successful!")
                 print(f"   Transcription: '{result['transcription']}'")
                 print(f"   Response: '{result['response_text']}'")
                 print(f"   Total latency: {result['total_latency_ms']:.1f}ms")
@@ -555,9 +555,9 @@ if __name__ == "__main__":
                     sf.write('test_pipeline_output.wav', result['response_audio'], result['sample_rate'])
                     print(f"   Response audio saved to test_pipeline_output.wav")
             else:
-                print(f"❌ Pipeline test failed: {result.get('error', 'Unknown error')}")
+                print(f"[ERROR] Pipeline test failed: {result.get('error', 'Unknown error')}")
                 
         except Exception as e:
-            print(f"❌ Pipeline test error: {e}")
+            print(f"[ERROR] Pipeline test error: {e}")
     
     asyncio.run(test_pipeline())

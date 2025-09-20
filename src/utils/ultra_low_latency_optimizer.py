@@ -63,11 +63,11 @@ class UltraLowLatencyOptimizer:
             for key, value in cuda_env.items():
                 os.environ[key] = value
                 
-            optimizer_logger.info("✅ CUDA environment optimized for maximum performance")
+            optimizer_logger.info("[OK] CUDA environment optimized for maximum performance")
             return True
             
         except Exception as e:
-            optimizer_logger.error(f"❌ Failed to setup CUDA environment: {e}")
+            optimizer_logger.error(f"[ERROR] Failed to setup CUDA environment: {e}")
             return False
     
     def optimize_pytorch_settings(self):
@@ -90,21 +90,21 @@ class UltraLowLatencyOptimizer:
                     torch.backends.cuda.enable_math_sdp(True)
                     torch.backends.cuda.enable_mem_efficient_sdp(True)
                 
-                optimizer_logger.info("✅ PyTorch optimizations applied")
+                optimizer_logger.info("[OK] PyTorch optimizations applied")
                 return True
             else:
-                optimizer_logger.warning("⚠️ CUDA not available, skipping GPU optimizations")
+                optimizer_logger.warning("[WARN] CUDA not available, skipping GPU optimizations")
                 return False
                 
         except Exception as e:
-            optimizer_logger.error(f"❌ Failed to optimize PyTorch settings: {e}")
+            optimizer_logger.error(f"[ERROR] Failed to optimize PyTorch settings: {e}")
             return False
     
     def optimize_model_compilation(self, model, model_name: str = "model"):
         """Apply optimal torch.compile configuration"""
         try:
             if not hasattr(torch, 'compile'):
-                optimizer_logger.warning("⚠️ torch.compile not available")
+                optimizer_logger.warning("[WARN] torch.compile not available")
                 return model
             
             # Method 1: Mode-based compilation (fastest)
@@ -115,11 +115,11 @@ class UltraLowLatencyOptimizer:
                     fullgraph=True,
                     dynamic=False
                 )
-                optimizer_logger.info(f"✅ {model_name} compiled with reduce-overhead mode")
+                optimizer_logger.info(f"[OK] {model_name} compiled with reduce-overhead mode")
                 return compiled_model
                 
             except Exception as mode_error:
-                optimizer_logger.warning(f"⚠️ Mode compilation failed for {model_name}: {mode_error}")
+                optimizer_logger.warning(f"[WARN] Mode compilation failed for {model_name}: {mode_error}")
                 
                 # Method 2: Options-based compilation
                 try:
@@ -133,19 +133,19 @@ class UltraLowLatencyOptimizer:
                                 "max_autotune_gemm": True,
                             }
                         )
-                        optimizer_logger.info(f"✅ {model_name} compiled with CUDA options")
+                        optimizer_logger.info(f"[OK] {model_name} compiled with CUDA options")
                         return compiled_model
                     else:
                         compiled_model = torch.compile(model)
-                        optimizer_logger.info(f"✅ {model_name} compiled with basic optimizations")
+                        optimizer_logger.info(f"[OK] {model_name} compiled with basic optimizations")
                         return compiled_model
                         
                 except Exception as options_error:
-                    optimizer_logger.warning(f"⚠️ Options compilation failed for {model_name}: {options_error}")
+                    optimizer_logger.warning(f"[WARN] Options compilation failed for {model_name}: {options_error}")
                     return model
                     
         except Exception as e:
-            optimizer_logger.error(f"❌ Model compilation failed for {model_name}: {e}")
+            optimizer_logger.error(f"[ERROR] Model compilation failed for {model_name}: {e}")
             return model
     
     @contextmanager
@@ -166,9 +166,9 @@ class UltraLowLatencyOptimizer:
             # Check against targets
             target = self.performance_targets.get(f"{operation_name}_ms", 1000)
             if latency_ms > target:
-                optimizer_logger.warning(f"⚠️ {operation_name} exceeded target: {latency_ms:.1f}ms > {target}ms")
+                optimizer_logger.warning(f"[WARN] {operation_name} exceeded target: {latency_ms:.1f}ms > {target}ms")
             else:
-                optimizer_logger.info(f"✅ {operation_name} within target: {latency_ms:.1f}ms <= {target}ms")
+                optimizer_logger.info(f"[OK] {operation_name} within target: {latency_ms:.1f}ms <= {target}ms")
     
     def get_system_performance(self) -> Dict[str, Any]:
         """Get comprehensive system performance metrics"""
@@ -202,7 +202,7 @@ class UltraLowLatencyOptimizer:
             return performance
             
         except Exception as e:
-            optimizer_logger.error(f"❌ Failed to get system performance: {e}")
+            optimizer_logger.error(f"[ERROR] Failed to get system performance: {e}")
             return {'error': str(e)}
     
     def optimize_audio_processing(self, chunk_size: int = 512, sample_rate: int = 16000) -> Dict[str, int]:
@@ -239,25 +239,25 @@ class UltraLowLatencyOptimizer:
         recommendations = []
         
         if not torch.cuda.is_available():
-            recommendations.append("⚠️ CUDA not available - consider GPU acceleration")
+            recommendations.append("[WARN] CUDA not available - consider GPU acceleration")
         
         if not hasattr(torch, 'compile'):
-            recommendations.append("⚠️ torch.compile not available - upgrade PyTorch to 2.0+")
+            recommendations.append("[WARN] torch.compile not available - upgrade PyTorch to 2.0+")
         
         if torch.cuda.is_available():
             memory_util = torch.cuda.memory_allocated() / torch.cuda.get_device_properties(0).total_memory
             if memory_util > 0.9:
-                recommendations.append("⚠️ High GPU memory usage - consider reducing batch size")
+                recommendations.append("[WARN] High GPU memory usage - consider reducing batch size")
             elif memory_util < 0.5:
-                recommendations.append("✅ GPU memory usage optimal")
+                recommendations.append("[OK] GPU memory usage optimal")
         
         recent_latencies = self.metrics['latencies'][-5:] if self.metrics['latencies'] else []
         if recent_latencies:
             avg_latency = sum(l['latency_ms'] for l in recent_latencies) / len(recent_latencies)
             if avg_latency > 300:
-                recommendations.append("⚠️ Average latency exceeds 300ms target")
+                recommendations.append("[WARN] Average latency exceeds 300ms target")
             else:
-                recommendations.append("✅ Latency within target range")
+                recommendations.append("[OK] Latency within target range")
         
         return recommendations
 

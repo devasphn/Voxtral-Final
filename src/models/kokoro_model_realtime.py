@@ -47,46 +47,46 @@ class KokoroTTSModel:
         self.chunk_size = 1024
         self.max_text_length = 1000  # Maximum text length per generation
         
-        tts_logger.info(f"🎵 KokoroTTSModel initialized with device: {self.device}")
-        tts_logger.info(f"   🎤 Voice: {self.voice}, Speed: {self.speed}, Lang: {self.lang_code}")
+        tts_logger.info(f"[AUDIO] KokoroTTSModel initialized with device: {self.device}")
+        tts_logger.info(f"   [MIC] Voice: {self.voice}, Speed: {self.speed}, Lang: {self.lang_code}")
     
     async def initialize(self) -> bool:
         """Initialize the Kokoro TTS model with production-ready settings"""
         if self.is_initialized:
-            tts_logger.info("🎵 Kokoro TTS model already initialized")
+            tts_logger.info("[AUDIO] Kokoro TTS model already initialized")
             return True
 
         start_time = time.time()
-        tts_logger.info("🚀 Initializing Kokoro TTS model for real-time synthesis...")
+        tts_logger.info("[INIT] Initializing Kokoro TTS model for real-time synthesis...")
 
         try:
             # Check and download model files if needed
             from src.utils.kokoro_model_manager import kokoro_model_manager
 
-            tts_logger.info("🔍 Checking Kokoro model files...")
+            tts_logger.info("[SEARCH] Checking Kokoro model files...")
             status = kokoro_model_manager.get_model_status()
 
             if status['integrity_percentage'] < 100:
-                tts_logger.info(f"📥 Model files incomplete ({status['integrity_percentage']:.1f}%), downloading...")
+                tts_logger.info(f"[INPUT] Model files incomplete ({status['integrity_percentage']:.1f}%), downloading...")
                 download_success = kokoro_model_manager.download_model_files()
                 if not download_success:
-                    tts_logger.error("❌ Failed to download Kokoro model files")
+                    tts_logger.error("[ERROR] Failed to download Kokoro model files")
                     return False
-                tts_logger.info("✅ Model files downloaded successfully")
+                tts_logger.info("[OK] Model files downloaded successfully")
             else:
-                tts_logger.info("✅ All model files verified and ready")
+                tts_logger.info("[OK] All model files verified and ready")
 
             # Import Kokoro pipeline
             from kokoro import KPipeline
 
-            tts_logger.info(f"📥 Loading Kokoro pipeline with language code: {self.lang_code}")
+            tts_logger.info(f"[INPUT] Loading Kokoro pipeline with language code: {self.lang_code}")
 
             # Initialize pipeline with language code
             self.pipeline = KPipeline(lang_code=self.lang_code)
 
             # Test the pipeline with a short sample
             test_text = "Kokoro TTS initialization test."
-            tts_logger.info("🧪 Testing Kokoro pipeline with sample text...")
+            tts_logger.info("[EMOJI] Testing Kokoro pipeline with sample text...")
 
             test_generator = self.pipeline(test_text, voice=self.voice, speed=self.speed)
             test_audio = None
@@ -96,23 +96,23 @@ class KokoroTTSModel:
                 break  # Just test the first chunk
 
             if test_audio is not None:
-                tts_logger.info(f"✅ Kokoro pipeline test successful - generated {len(test_audio)} samples")
+                tts_logger.info(f"[OK] Kokoro pipeline test successful - generated {len(test_audio)} samples")
             else:
                 raise RuntimeError("Pipeline test failed - no audio generated")
 
             self.is_initialized = True
             init_time = time.time() - start_time
-            tts_logger.info(f"🎉 Kokoro TTS model fully initialized in {init_time:.2f}s and ready for synthesis!")
+            tts_logger.info(f"[SUCCESS] Kokoro TTS model fully initialized in {init_time:.2f}s and ready for synthesis!")
             return True
 
         except ImportError as e:
-            tts_logger.error(f"❌ Failed to import Kokoro: {e}")
-            tts_logger.error("💡 Please install Kokoro: pip install kokoro>=0.9.4")
+            tts_logger.error(f"[ERROR] Failed to import Kokoro: {e}")
+            tts_logger.error("[IDEA] Please install Kokoro: pip install kokoro>=0.9.4")
             return False
         except Exception as e:
-            tts_logger.error(f"❌ Failed to initialize Kokoro TTS model: {e}")
+            tts_logger.error(f"[ERROR] Failed to initialize Kokoro TTS model: {e}")
             import traceback
-            tts_logger.error(f"❌ Full error traceback: {traceback.format_exc()}")
+            tts_logger.error(f"[ERROR] Full error traceback: {traceback.format_exc()}")
             return False
     
     async def synthesize_speech(self, text: str, voice: Optional[str] = None, 
@@ -140,11 +140,11 @@ class KokoroTTSModel:
         speed = speed or self.speed
         
         try:
-            tts_logger.debug(f"🎵 Synthesizing speech for chunk {chunk_id}: '{text[:50]}...'")
+            tts_logger.debug(f"[AUDIO] Synthesizing speech for chunk {chunk_id}: '{text[:50]}...'")
             
             # Validate and preprocess text
             if not text or not text.strip():
-                tts_logger.warning(f"⚠️ Empty text provided for chunk {chunk_id}")
+                tts_logger.warning(f"[WARN] Empty text provided for chunk {chunk_id}")
                 return {
                     'audio_data': np.array([]),
                     'sample_rate': self.sample_rate,
@@ -158,7 +158,7 @@ class KokoroTTSModel:
             # Truncate text if too long
             if len(text) > self.max_text_length:
                 text = text[:self.max_text_length]
-                tts_logger.warning(f"⚠️ Text truncated to {self.max_text_length} characters for chunk {chunk_id}")
+                tts_logger.warning(f"[WARN] Text truncated to {self.max_text_length} characters for chunk {chunk_id}")
             
             # Generate speech using Kokoro pipeline
             generator = self.pipeline(text, voice=voice, speed=speed)
@@ -173,15 +173,15 @@ class KokoroTTSModel:
                     total_samples += len(audio)
                     # OPTIMIZED: Reduced logging for speed - only log every 5th chunk
                     if i % 5 == 0:
-                        tts_logger.debug(f"   📦 Generated chunk {i}: {len(audio)} samples")
+                        tts_logger.debug(f"   [EMOJI] Generated chunk {i}: {len(audio)} samples")
             
             # Concatenate all audio chunks
             if audio_chunks:
                 final_audio = np.concatenate(audio_chunks)
-                tts_logger.debug(f"   🔗 Concatenated {len(audio_chunks)} chunks into {len(final_audio)} samples")
+                tts_logger.debug(f"   [EMOJI] Concatenated {len(audio_chunks)} chunks into {len(final_audio)} samples")
             else:
                 final_audio = np.array([])
-                tts_logger.warning(f"⚠️ No audio generated for chunk {chunk_id}")
+                tts_logger.warning(f"[WARN] No audio generated for chunk {chunk_id}")
             
             synthesis_time = (time.time() - synthesis_start_time) * 1000
             audio_duration_s = len(final_audio) / self.sample_rate if len(final_audio) > 0 else 0
@@ -197,7 +197,7 @@ class KokoroTTSModel:
             
             self.generation_history.append(performance_stats)
             
-            tts_logger.info(f"✅ Synthesized speech for chunk {chunk_id} in {synthesis_time:.1f}ms "
+            tts_logger.info(f"[OK] Synthesized speech for chunk {chunk_id} in {synthesis_time:.1f}ms "
                            f"({audio_duration_s:.2f}s audio, RTF: {performance_stats['real_time_factor']:.2f})")
             
             return {
@@ -216,7 +216,7 @@ class KokoroTTSModel:
             
         except Exception as e:
             synthesis_time = (time.time() - synthesis_start_time) * 1000
-            tts_logger.error(f"❌ Error synthesizing speech for chunk {chunk_id}: {e}")
+            tts_logger.error(f"[ERROR] Error synthesizing speech for chunk {chunk_id}: {e}")
             
             # Return error response with timing info
             error_msg = "Could not synthesize speech"
@@ -252,17 +252,17 @@ class KokoroTTSModel:
         synthesis_start_time = time.time()
 
         try:
-            tts_logger.debug(f"🎵 Starting streaming synthesis for chunk {chunk_id}: '{text[:50]}...'")
+            tts_logger.debug(f"[AUDIO] Starting streaming synthesis for chunk {chunk_id}: '{text[:50]}...'")
 
             # Validate and preprocess text
             if not text or not text.strip():
-                tts_logger.warning(f"⚠️ Empty text provided for streaming chunk {chunk_id}")
+                tts_logger.warning(f"[WARN] Empty text provided for streaming chunk {chunk_id}")
                 return
 
             # Truncate text if too long
             if len(text) > self.max_text_length:
                 text = text[:self.max_text_length]
-                tts_logger.warning(f"⚠️ Text truncated to {self.max_text_length} characters for streaming chunk {chunk_id}")
+                tts_logger.warning(f"[WARN] Text truncated to {self.max_text_length} characters for streaming chunk {chunk_id}")
 
             # Generate speech using streaming pipeline
             generator = self.pipeline(text, voice=voice, speed=speed)
@@ -284,13 +284,13 @@ class KokoroTTSModel:
 
                     # Minimal logging for speed
                     if i % 10 == 0:
-                        tts_logger.debug(f"🎵 Streaming chunk {i}: {len(audio)} samples -> {len(audio_bytes)} bytes")
+                        tts_logger.debug(f"[AUDIO] Streaming chunk {i}: {len(audio)} samples -> {len(audio_bytes)} bytes")
 
                     # Small delay to prevent overwhelming the pipeline
                     await asyncio.sleep(0.001)  # 1ms delay
 
             synthesis_time = (time.time() - synthesis_start_time) * 1000
-            tts_logger.info(f"✅ Streaming synthesis completed in {synthesis_time:.1f}ms ({chunk_count} chunks)")
+            tts_logger.info(f"[OK] Streaming synthesis completed in {synthesis_time:.1f}ms ({chunk_count} chunks)")
 
             # Send final chunk marker
             yield {
@@ -302,7 +302,7 @@ class KokoroTTSModel:
             }
 
         except Exception as e:
-            tts_logger.error(f"❌ Streaming synthesis failed for chunk {chunk_id}: {e}")
+            tts_logger.error(f"[ERROR] Streaming synthesis failed for chunk {chunk_id}: {e}")
             # Send error marker
             yield {
                 'audio_chunk': None,
@@ -324,11 +324,11 @@ class KokoroTTSModel:
         """Update voice parameters for future synthesis"""
         if voice is not None:
             self.voice = voice
-            tts_logger.info(f"🎤 Voice updated to: {voice}")
+            tts_logger.info(f"[MIC] Voice updated to: {voice}")
         
         if speed is not None:
             self.speed = max(0.5, min(2.0, speed))  # Clamp speed between 0.5 and 2.0
-            tts_logger.info(f"⚡ Speed updated to: {self.speed}")
+            tts_logger.info(f"[FAST] Speed updated to: {self.speed}")
     
     def get_model_info(self) -> Dict[str, Any]:
         """Get comprehensive model information and performance statistics"""
@@ -383,13 +383,13 @@ if __name__ == "__main__":
             if result['success'] and len(result['audio_data']) > 0:
                 # Save test audio
                 sf.write('test_kokoro_output.wav', result['audio_data'], result['sample_rate'])
-                print(f"✅ Test successful! Audio saved to test_kokoro_output.wav")
+                print(f"[OK] Test successful! Audio saved to test_kokoro_output.wav")
                 print(f"   Synthesis time: {result['synthesis_time_ms']:.1f}ms")
                 print(f"   Audio duration: {result['audio_duration_s']:.2f}s")
             else:
-                print(f"❌ Test failed: {result.get('error', 'Unknown error')}")
+                print(f"[ERROR] Test failed: {result.get('error', 'Unknown error')}")
                 
         except Exception as e:
-            print(f"❌ Test error: {e}")
+            print(f"[ERROR] Test error: {e}")
     
     asyncio.run(test_kokoro())

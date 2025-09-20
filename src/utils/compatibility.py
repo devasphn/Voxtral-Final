@@ -32,11 +32,11 @@ class CompatibilityManager:
         try:
             __import__(import_name)
             self.available_packages.append(package_name)
-            compat_logger.info(f"✅ {package_name} is available")
+            compat_logger.info(f"[OK] {package_name} is available")
             return True
         except ImportError:
             self.missing_packages.append(package_name)
-            compat_logger.warning(f"⚠️ {package_name} is not available")
+            compat_logger.warning(f"[WARN] {package_name} is not available")
             return False
     
     def get_status_report(self) -> Dict[str, Any]:
@@ -56,10 +56,10 @@ def check_transformers_voxtral():
     """Check if Voxtral is available in transformers"""
     try:
         from transformers import VoxtralForConditionalGeneration, AutoProcessor
-        compat_logger.info("✅ Voxtral classes available in transformers")
+        compat_logger.info("[OK] Voxtral classes available in transformers")
         return True
     except ImportError:
-        compat_logger.warning("⚠️ Voxtral classes not available - using fallback")
+        compat_logger.warning("[WARN] Voxtral classes not available - using fallback")
         return False
 
 def check_mistral_common():
@@ -94,6 +94,13 @@ class FallbackVoxtralModel:
     
     async def process_realtime_chunk(self, audio_data, chunk_id):
         raise MissingPackageError("Voxtral not available - please install transformers>=4.56.0")
+
+class FallbackAutoProcessor:
+    """Fallback implementation when AutoProcessor is not available"""
+
+    @staticmethod
+    def from_pretrained(*args, **kwargs):
+        raise MissingPackageError("AutoProcessor not available - please install transformers>=4.56.0")
 
 # Orpheus TTS fallback model removed - using Kokoro TTS only
 
@@ -156,7 +163,7 @@ def get_config():
 # Initialization function
 def initialize_compatibility():
     """Initialize compatibility layer and check all packages"""
-    compat_logger.info("🔧 Initializing compatibility layer...")
+    compat_logger.info("Initializing compatibility layer...")
     
     # Check all critical packages
     packages_to_check = [
@@ -185,17 +192,17 @@ def initialize_compatibility():
     
     if critical_missing:
         compat_manager.fallback_mode = True
-        compat_logger.error(f"❌ Critical packages missing: {critical_missing}")
+        compat_logger.error(f"[ERROR] Critical packages missing: {critical_missing}")
         compat_logger.error("System will run in limited fallback mode")
     elif not voxtral_available:
         compat_manager.fallback_mode = True
-        compat_logger.warning("⚠️ Voxtral not available - some features will be limited")
+        compat_logger.warning("[WARN] Voxtral not available - some features will be limited")
     else:
-        compat_logger.info("✅ All critical packages available")
-    
+        compat_logger.info("[OK] All critical packages available")
+
     # Print status report
     status = compat_manager.get_status_report()
-    compat_logger.info(f"📊 Compatibility Status:")
+    compat_logger.info(f"[INFO] Compatibility Status:")
     compat_logger.info(f"   Available: {len(status['available_packages'])}")
     compat_logger.info(f"   Missing: {len(status['missing_packages'])}")
     compat_logger.info(f"   Fallback mode: {status['fallback_mode']}")
@@ -212,7 +219,7 @@ if __name__ != "__main__":
 # Test function
 def test_compatibility():
     """Test the compatibility layer"""
-    print("🧪 Testing Compatibility Layer")
+    print("[EMOJI] Testing Compatibility Layer")
     print("=" * 50)
     
     status = initialize_compatibility()
@@ -233,7 +240,7 @@ def test_compatibility():
     fallback_config = FallbackConfig()
     print(f"Fallback Config: server.port = {fallback_config.server.port}")
     
-    print("✅ Compatibility layer test completed")
+    print("[OK] Compatibility layer test completed")
 
 if __name__ == "__main__":
     test_compatibility()
