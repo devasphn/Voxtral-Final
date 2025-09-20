@@ -156,7 +156,52 @@ class TTSService:
                 "audio_data": None,
                 "metadata": {}
             }
-    
+
+    async def generate_speech_streaming(self, text: str, voice: Optional[str] = None):
+        """
+        ULTRA-LOW LATENCY: Streaming speech generation
+        Yields audio chunks as they are generated for immediate playback
+        """
+        if not self.is_initialized:
+            tts_service_logger.warning("⚠️ TTS Service not initialized, attempting initialization...")
+            await self.initialize()
+
+        voice = voice or self.default_voice
+        kokoro_voice = map_voice_to_kokoro(voice)
+
+        try:
+            tts_service_logger.info(f"🎵 Starting streaming generation: '{text[:50]}...' with voice '{voice}' (mapped to Kokoro: '{kokoro_voice}')")
+
+            async for chunk_data in self.kokoro_model.synthesize_speech_streaming(text, kokoro_voice):
+                if chunk_data.get('error'):
+                    yield {
+                        "success": False,
+                        "error": chunk_data['error'],
+                        "audio_chunk": None,
+                        "is_final": True
+                    }
+                    return
+
+                yield {
+                    "success": True,
+                    "audio_chunk": chunk_data.get('audio_chunk'),
+                    "chunk_index": chunk_data.get('chunk_index', 0),
+                    "is_final": chunk_data.get('is_final', False),
+                    "voice": voice,
+                    "kokoro_voice": kokoro_voice,
+                    "sample_rate": 24000,  # Kokoro outputs at 24kHz
+                    "synthesis_time_ms": chunk_data.get('synthesis_time_ms', 0)
+                }
+
+        except Exception as e:
+            tts_service_logger.error(f"❌ Streaming generation failed: {e}")
+            yield {
+                "success": False,
+                "error": str(e),
+                "audio_chunk": None,
+                "is_final": True
+            }
+
     def _format_audio_data(self, audio_data: Any, return_format: str) -> Any:
         """Format audio data according to requested format"""
         if return_format == "base64":

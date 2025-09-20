@@ -19,11 +19,20 @@ model:
   
 audio:
   sample_rate: 16000
-  chunk_size: 1024
+  chunk_size: 512  # OPTIMIZED: Reduced for lower latency (was 1024)
   format: "int16"
   channels: 1
-  frame_duration_ms: 30
-  
+  frame_duration_ms: 20  # OPTIMIZED: Reduced for faster processing (was 30)
+
+# ULTRA-LOW LATENCY VAD Configuration
+vad:
+  threshold: 0.005          # Lower threshold for faster detection
+  min_voice_duration_ms: 150  # Reduced from 200ms
+  min_silence_duration_ms: 600  # Reduced from 800ms
+  chunk_size_ms: 20         # Smaller chunks for faster processing
+  overlap_ms: 5             # Minimal overlap
+  sensitivity: "high"       # High sensitivity for real-time
+
 # Mel spectrogram configuration matching Voxtral (FIXED)
 spectrogram:
   n_mels: 128
@@ -33,9 +42,9 @@ spectrogram:
   
 streaming:
   max_connections: 100
-  buffer_size: 4096
+  buffer_size: 2048  # OPTIMIZED: Reduced for lower latency (was 4096)
   timeout_seconds: 300
-  latency_target_ms: 200
+  latency_target_ms: 100  # OPTIMIZED: More aggressive target (was 200)
 
 # TTS (Text-to-Speech) configuration - Kokoro TTS
 tts:
@@ -51,21 +60,21 @@ tts:
   voices:
     english: ["af_heart", "af_bella", "af_nicole", "af_sarah"]  # Kokoro English voices
     hindi: ["hm_omega", "hf_alpha", "hf_beta", "hm_psi"]  # Kokoro Hindi voices
-  # Performance settings
+  # ULTRA-LOW LATENCY Performance settings
   performance:
     batch_size: 1  # Direct integration uses batch_size=1
-    max_queue_size: 32
-    num_workers: 4
-    target_latency_ms: 150
+    max_queue_size: 16  # OPTIMIZED: Reduced queue size for lower latency (was 32)
+    num_workers: 2  # OPTIMIZED: Reduced workers to minimize overhead (was 4)
+    target_latency_ms: 100  # OPTIMIZED: More aggressive target (was 150)
 
-# Speech-to-Speech pipeline configuration
+# ULTRA-LOW LATENCY Speech-to-Speech pipeline configuration
 speech_to_speech:
   enabled: true
-  latency_target_ms: 300  # Updated to match <300ms requirement
-  buffer_size: 8192
+  latency_target_ms: 200  # OPTIMIZED: More aggressive target (was 300)
+  buffer_size: 4096  # OPTIMIZED: Reduced for lower latency (was 8192)
   output_format: "wav"
   quality: "high"
-  emotional_expression: true
+  emotional_expression: false  # OPTIMIZED: Disabled for speed
   
 logging:
   level: "INFO"

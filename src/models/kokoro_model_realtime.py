@@ -171,7 +171,9 @@ class KokoroTTSModel:
                 if audio is not None and len(audio) > 0:
                     audio_chunks.append(audio)
                     total_samples += len(audio)
-                    tts_logger.debug(f"   📦 Generated chunk {i}: {len(audio)} samples")
+                    # OPTIMIZED: Reduced logging for speed - only log every 5th chunk
+                    if i % 5 == 0:
+                        tts_logger.debug(f"   📦 Generated chunk {i}: {len(audio)} samples")
             
             # Concatenate all audio chunks
             if audio_chunks:
@@ -235,6 +237,81 @@ class KokoroTTSModel:
                 'is_empty': True
             }
     
+    async def synthesize_speech_streaming(self, text: str, voice: Optional[str] = None,
+                                        speed: Optional[float] = None, chunk_id: Optional[str] = None):
+        """
+        ULTRA-LOW LATENCY: Streaming speech synthesis for real-time applications
+        Yields audio chunks as they are generated instead of waiting for completion
+        """
+        if not self.is_initialized:
+            raise RuntimeError("Kokoro TTS model not initialized")
+
+        voice = voice or self.voice
+        speed = speed or self.speed
+        chunk_id = chunk_id or f"stream_{int(time.time() * 1000)}"
+        synthesis_start_time = time.time()
+
+        try:
+            tts_logger.debug(f"🎵 Starting streaming synthesis for chunk {chunk_id}: '{text[:50]}...'")
+
+            # Validate and preprocess text
+            if not text or not text.strip():
+                tts_logger.warning(f"⚠️ Empty text provided for streaming chunk {chunk_id}")
+                return
+
+            # Truncate text if too long
+            if len(text) > self.max_text_length:
+                text = text[:self.max_text_length]
+                tts_logger.warning(f"⚠️ Text truncated to {self.max_text_length} characters for streaming chunk {chunk_id}")
+
+            # Generate speech using streaming pipeline
+            generator = self.pipeline(text, voice=voice, speed=speed)
+
+            chunk_count = 0
+            for i, (gs, ps, audio) in enumerate(generator):
+                if audio is not None and len(audio) > 0:
+                    # Convert to bytes immediately and yield
+                    audio_bytes = (audio * 32767).astype(np.int16).tobytes()
+                    chunk_count += 1
+
+                    # Yield the audio chunk for immediate playback
+                    yield {
+                        'audio_chunk': audio_bytes,
+                        'chunk_index': i,
+                        'is_final': False,
+                        'sample_rate': self.sample_rate
+                    }
+
+                    # Minimal logging for speed
+                    if i % 10 == 0:
+                        tts_logger.debug(f"🎵 Streaming chunk {i}: {len(audio)} samples -> {len(audio_bytes)} bytes")
+
+                    # Small delay to prevent overwhelming the pipeline
+                    await asyncio.sleep(0.001)  # 1ms delay
+
+            synthesis_time = (time.time() - synthesis_start_time) * 1000
+            tts_logger.info(f"✅ Streaming synthesis completed in {synthesis_time:.1f}ms ({chunk_count} chunks)")
+
+            # Send final chunk marker
+            yield {
+                'audio_chunk': None,
+                'chunk_index': chunk_count,
+                'is_final': True,
+                'synthesis_time_ms': synthesis_time,
+                'total_chunks': chunk_count
+            }
+
+        except Exception as e:
+            tts_logger.error(f"❌ Streaming synthesis failed for chunk {chunk_id}: {e}")
+            # Send error marker
+            yield {
+                'audio_chunk': None,
+                'chunk_index': 0,
+                'is_final': True,
+                'error': str(e),
+                'synthesis_time_ms': (time.time() - synthesis_start_time) * 1000
+            }
+
     def get_available_voices(self) -> List[str]:
         """Get list of available voices"""
         # Common Kokoro voices - this could be expanded based on the model

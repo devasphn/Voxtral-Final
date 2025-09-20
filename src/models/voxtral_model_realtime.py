@@ -317,7 +317,7 @@ class VoxtralModel:
             self.model.eval()
             realtime_logger.info("🔧 Model set to evaluation mode")
             
-            # ULTRA-LOW LATENCY: Advanced torch.compile optimization with enhanced settings
+            # ULTRA-LOW LATENCY: Fixed torch.compile optimization (no mode/options conflict)
             if self.use_torch_compile and hasattr(torch, 'compile'):
                 try:
                     realtime_logger.info("⚡ Attempting ULTRA-LOW LATENCY model compilation...")
@@ -326,29 +326,45 @@ class VoxtralModel:
                     import os
                     os.environ['TORCH_COMPILE_DEBUG'] = '0'  # Disable debug for speed
                     os.environ['TORCHINDUCTOR_CACHE_DIR'] = './torch_compile_cache'
+                    os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:512,roundup_power2_divisions:16'
 
-                    # Use reduce-overhead mode for maximum performance
-                    compile_options = {}
-                    if self.device == "cuda" and torch.cuda.is_available():
-                        # CUDA-specific optimizations
-                        compile_options = {
-                            "triton.cudagraphs": True,  # Enable CUDA graphs for speed
-                            "max_autotune": True,       # Enable maximum autotuning
-                            "epilogue_fusion": True,    # Enable epilogue fusion
-                            "max_autotune_gemm": True,  # Optimize GEMM operations
-                        }
+                    # FIXED: Method 1 - Use mode-based compilation (no options conflict)
+                    try:
+                        self.model = torch.compile(
+                            self.model,
+                            mode="reduce-overhead",  # Maximum performance mode
+                            fullgraph=True,         # Compile entire graph
+                            dynamic=False           # Static shapes for speed
+                        )
+                        realtime_logger.info("✅ Model compiled with reduce-overhead mode + CUDA optimizations")
+                    except Exception as mode_error:
+                        realtime_logger.warning(f"⚠️ Mode compilation failed: {mode_error}")
 
-                    self.model = torch.compile(
-                        self.model,
-                        mode="reduce-overhead",  # ULTRA-OPTIMIZED: Maximum performance mode
-                        fullgraph=True,         # ULTRA-OPTIMIZED: Compile entire graph
-                        dynamic=False,          # ULTRA-OPTIMIZED: Static shapes for speed
-                        backend="inductor",     # ULTRA-OPTIMIZED: Use TorchInductor backend
-                        options=compile_options
-                    )
-                    realtime_logger.info("✅ Model compiled with ULTRA-LOW LATENCY optimizations")
+                        # FIXED: Method 2 - Use options-based compilation (no mode conflict)
+                        try:
+                            if self.device == "cuda" and torch.cuda.is_available():
+                                self.model = torch.compile(
+                                    self.model,
+                                    options={
+                                        "triton.cudagraphs": True,
+                                        "max_autotune": True,
+                                        "epilogue_fusion": True,
+                                        "max_autotune_gemm": True,
+                                    }
+                                )
+                                realtime_logger.info("✅ Model compiled with CUDA-optimized options")
+                            else:
+                                # CPU fallback
+                                self.model = torch.compile(self.model)
+                                realtime_logger.info("✅ Model compiled with basic optimizations")
+                        except Exception as options_error:
+                            realtime_logger.warning(f"⚠️ Options compilation failed: {options_error}")
+                            # Final fallback to basic compilation
+                            self.model = torch.compile(self.model)
+                            realtime_logger.info("✅ Model compiled with basic optimizations")
+
                 except Exception as e:
-                    realtime_logger.warning(f"⚠️ Ultra-low latency compilation failed: {e}")
+                    realtime_logger.warning(f"⚠️ All torch.compile attempts failed: {e}")
                     try:
                         # Fallback to max-autotune mode
                         realtime_logger.info("🔄 Falling back to max-autotune compilation mode...")
@@ -367,17 +383,32 @@ class VoxtralModel:
             else:
                 realtime_logger.info("💡 torch.compile disabled or not available")
 
+            # ULTRA-LOW LATENCY: CUDA Graphs and Memory Optimization
+            if torch.cuda.is_available():
+                torch.backends.cudnn.benchmark = True
+                torch.backends.cudnn.deterministic = False
+                torch.backends.cuda.matmul.allow_tf32 = True
+                torch.backends.cudnn.allow_tf32 = True
+
+                # Enable memory optimization
+                torch.cuda.empty_cache()
+                torch.cuda.set_per_process_memory_fraction(0.95)
+
+                realtime_logger.info("🚀 CUDA optimizations enabled for maximum performance")
+
             # ULTRA-LOW LATENCY: Additional model optimizations
             if hasattr(self.model, 'generation_config'):
                 # Optimize generation config for speed
                 self.model.generation_config.use_cache = True
                 self.model.generation_config.pad_token_id = self.processor.tokenizer.eos_token_id
-                # Additional generation optimizations
-                self.model.generation_config.do_sample = True
-                self.model.generation_config.temperature = 0.05  # Low temperature for speed
-                self.model.generation_config.top_p = 0.9
-                self.model.generation_config.top_k = 30
-                self.model.generation_config.repetition_penalty = 1.2
+                # ULTRA-OPTIMIZED generation parameters for sub-100ms target
+                self.model.generation_config.do_sample = False  # Greedy decoding for speed
+                self.model.generation_config.temperature = 0.01  # Minimal temperature for speed
+                self.model.generation_config.top_p = 0.7  # More focused sampling
+                self.model.generation_config.top_k = 15  # Reduced vocabulary for speed
+                self.model.generation_config.repetition_penalty = 1.3  # Higher penalty for concise responses
+                self.model.generation_config.num_beams = 1  # No beam search for speed
+                self.model.generation_config.early_stopping = True  # Stop early when possible
                 realtime_logger.info("✅ Generation config optimized for ultra-low latency")
 
             # ULTRA-LOW LATENCY: Enable PyTorch 2.0+ optimizations
@@ -506,17 +537,17 @@ class VoxtralModel:
                             with torch.no_grad():
                                 # Use mixed precision for speed
                                 with torch.autocast(device_type="cuda" if "cuda" in self.device else "cpu", dtype=self.torch_dtype, enabled=True):
-                                    # ULTRA-LOW LATENCY: Optimized generation parameters for sub-100ms target
+                                    # ULTRA-LOW LATENCY: Maximum speed generation parameters for sub-50ms target
                                     outputs = self.model.generate(
                                         **inputs,
-                                        max_new_tokens=15,      # ULTRA-OPTIMIZED: Reduced to 15 tokens for maximum speed
+                                        max_new_tokens=10,      # ULTRA-OPTIMIZED: Reduced to 10 tokens for maximum speed
                                         min_new_tokens=1,       # ULTRA-REDUCED: Minimum 1 token for fastest response
-                                        do_sample=True,         # Enable sampling for more natural responses
+                                        do_sample=False,        # ULTRA-OPTIMIZED: Greedy decoding for maximum speed
                                         num_beams=1,           # Keep single beam for speed
-                                        temperature=0.03,      # ULTRA-OPTIMIZED: Even lower temperature for fastest generation
-                                        top_p=0.85,           # ULTRA-OPTIMIZED: Reduced top_p for faster sampling
-                                        top_k=20,             # ULTRA-OPTIMIZED: Further reduced vocabulary for speed
-                                        repetition_penalty=1.3, # ULTRA-OPTIMIZED: Higher penalty for more concise responses
+                                        temperature=0.01,      # ULTRA-OPTIMIZED: Minimal temperature for fastest generation
+                                        top_p=0.7,            # ULTRA-OPTIMIZED: More focused sampling
+                                        top_k=10,             # ULTRA-OPTIMIZED: Minimal vocabulary for speed
+                                        repetition_penalty=1.4, # ULTRA-OPTIMIZED: Higher penalty for more concise responses
                                         pad_token_id=self.processor.tokenizer.eos_token_id if hasattr(self.processor, 'tokenizer') else None,
                                         eos_token_id=self.processor.tokenizer.eos_token_id if hasattr(self.processor, 'tokenizer') else None,
                                         use_cache=True,         # Use KV cache for speed
@@ -526,6 +557,7 @@ class VoxtralModel:
                                         output_attentions=False, # Don't compute attentions for speed
                                         output_hidden_states=False, # Don't compute hidden states for speed
                                         return_dict_in_generate=False, # Return simple tensor for speed
+                                        synced_gpus=False,     # Disable GPU synchronization for speed
                                     )
 
                             inference_time = (time.time() - inference_start) * 1000

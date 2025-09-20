@@ -531,35 +531,40 @@ async def home(request: Request):
         let currentConversationId = null;
         let speechToSpeechActive = false;
 
-        // Enhanced configuration for continuous speech capture
-        const CHUNK_SIZE = 4096;
-        const CHUNK_INTERVAL = 100;  // Reduced for more responsive VAD (was 1000ms)
+        // ULTRA-LOW LATENCY: Enhanced configuration for continuous speech capture
+        const CHUNK_SIZE = 2048;  // OPTIMIZED: Reduced chunk size for lower latency
+        const CHUNK_INTERVAL = 50;  // OPTIMIZED: Faster processing interval (was 100ms)
         const SAMPLE_RATE = 16000;
-        const LATENCY_WARNING_THRESHOLD = 1000;
-        const SILENCE_THRESHOLD = 0.01;  // RMS threshold for speech detection
-        const MIN_SPEECH_DURATION = 500;  // Minimum speech duration in ms
-        const END_OF_SPEECH_SILENCE = 1500;  // Silence duration to trigger processing (ms)
+        const LATENCY_WARNING_THRESHOLD = 500;  // OPTIMIZED: Lower threshold for faster warnings
+        const SILENCE_THRESHOLD = 0.005;  // OPTIMIZED: Lower threshold for faster detection
+        const MIN_SPEECH_DURATION = 200;  // OPTIMIZED: Reduced minimum speech duration (was 500ms)
+        const END_OF_SPEECH_SILENCE = 800;  // OPTIMIZED: Faster silence detection (was 1500ms)
         
         function log(message, type = 'info') {
             console.log(`[Voxtral VAD] ${message}`);
         }
 
-        // Enhanced VAD function for continuous speech detection
+        // ULTRA-LOW LATENCY: Enhanced VAD function for continuous speech detection
         function detectSpeechInBuffer(audioData) {
             if (!audioData || audioData.length === 0) return false;
 
-            // Calculate RMS energy
+            // OPTIMIZED: Calculate RMS energy with reduced computation
             let sum = 0;
-            for (let i = 0; i < audioData.length; i++) {
+            const step = Math.max(1, Math.floor(audioData.length / 1024)); // Sample every nth element for speed
+            for (let i = 0; i < audioData.length; i += step) {
                 sum += audioData[i] * audioData[i];
             }
-            const rms = Math.sqrt(sum / audioData.length);
+            const rms = Math.sqrt(sum / (audioData.length / step));
 
-            // Calculate max amplitude
-            const maxAmplitude = Math.max(...audioData.map(Math.abs));
+            // OPTIMIZED: Calculate max amplitude with sampling
+            let maxAmplitude = 0;
+            for (let i = 0; i < audioData.length; i += step) {
+                const abs = Math.abs(audioData[i]);
+                if (abs > maxAmplitude) maxAmplitude = abs;
+            }
 
-            // Speech detected if both RMS and amplitude exceed thresholds
-            const hasSpeech = rms > SILENCE_THRESHOLD && maxAmplitude > 0.002;
+            // OPTIMIZED: Speech detected with lower thresholds for faster detection
+            const hasSpeech = rms > SILENCE_THRESHOLD && maxAmplitude > 0.001;
 
             return hasSpeech;
         }
@@ -1036,8 +1041,8 @@ async def home(request: Request):
                     console.error('Audio playback error:', error);
                 }
 
-                // Small delay between audio chunks to prevent overlap
-                await new Promise(resolve => setTimeout(resolve, 100));
+                // ULTRA-LOW LATENCY: Minimal delay between audio chunks
+                await new Promise(resolve => setTimeout(resolve, 25));  // OPTIMIZED: Reduced from 100ms to 25ms
             }
 
             isPlayingAudio = false;
@@ -1323,11 +1328,11 @@ async def home(request: Request):
                         pendingResponse = true;  // Prevent processing until response received
                     }
 
-                    // Prevent buffer from growing too large (max 30 seconds)
-                    const maxBufferSize = SAMPLE_RATE * 30;
+                    // ULTRA-LOW LATENCY: Prevent buffer from growing too large (max 5 seconds for lower latency)
+                    const maxBufferSize = SAMPLE_RATE * 5;  // OPTIMIZED: Reduced from 30 to 5 seconds
                     if (continuousAudioBuffer.length > maxBufferSize) {
                         continuousAudioBuffer = continuousAudioBuffer.slice(-maxBufferSize);
-                        log('Audio buffer trimmed to prevent memory overflow');
+                        log('Audio buffer trimmed to prevent memory overflow (5s max)');
                     }
                 };
                 
