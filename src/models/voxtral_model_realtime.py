@@ -22,10 +22,6 @@ import base64
 
 # NOTE: mistral_common imports removed - using standard Hugging Face VoxtralProcessor API
 # The official VoxtralProcessor uses standard conversation format, not mistral_common classes
-    AudioChunk = None
-    TextChunk = None
-    UserMessage = None
-    MISTRAL_COMMON_AVAILABLE = False
 import tempfile
 import soundfile as sf
 import numpy as np
