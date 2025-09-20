@@ -75,6 +75,22 @@ speech_to_speech:
   output_format: "wav"
   quality: "high"
   emotional_expression: false  # OPTIMIZED: Disabled for speed
+
+  # STREAMING CONFIGURATION
+  streaming:
+    enabled: true
+    mode: "word_level"  # Stream at word level for immediate TTS
+    words_trigger_threshold: 2  # Start TTS after 2 words
+    max_tokens: 250  # Allow longer responses with streaming
+    interruption_detection: true
+    interruption_threshold_ms: 100  # Max time to detect interruption
+
+  # VOICE AGENT OPTIMIZATION
+  voice_agent:
+    first_word_target_ms: 100  # Target for first words
+    word_to_audio_target_ms: 150  # Target from words to audio
+    interruption_response_ms: 50  # Target interruption response time
+    concurrent_tts_streams: 3  # Max concurrent TTS processing
   
 logging:
   level: "INFO"

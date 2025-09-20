@@ -537,28 +537,54 @@ class VoxtralModel:
                             with torch.no_grad():
                                 # Use mixed precision for speed
                                 with torch.autocast(device_type="cuda" if "cuda" in self.device else "cpu", dtype=self.torch_dtype, enabled=True):
-                                    # ULTRA-LOW LATENCY: Maximum speed generation parameters for sub-50ms target
-                                    outputs = self.model.generate(
-                                        **inputs,
-                                        max_new_tokens=10,      # ULTRA-OPTIMIZED: Reduced to 10 tokens for maximum speed
-                                        min_new_tokens=1,       # ULTRA-REDUCED: Minimum 1 token for fastest response
-                                        do_sample=False,        # ULTRA-OPTIMIZED: Greedy decoding for maximum speed
-                                        num_beams=1,           # Keep single beam for speed
-                                        temperature=0.01,      # ULTRA-OPTIMIZED: Minimal temperature for fastest generation
-                                        top_p=0.7,            # ULTRA-OPTIMIZED: More focused sampling
-                                        top_k=10,             # ULTRA-OPTIMIZED: Minimal vocabulary for speed
-                                        repetition_penalty=1.4, # ULTRA-OPTIMIZED: Higher penalty for more concise responses
-                                        pad_token_id=self.processor.tokenizer.eos_token_id if hasattr(self.processor, 'tokenizer') else None,
-                                        eos_token_id=self.processor.tokenizer.eos_token_id if hasattr(self.processor, 'tokenizer') else None,
-                                        use_cache=True,         # Use KV cache for speed
-                                        # ULTRA-LOW LATENCY: Additional optimizations
-                                        early_stopping=True,   # Stop as soon as EOS is generated
-                                        output_scores=False,   # Don't compute scores for speed
-                                        output_attentions=False, # Don't compute attentions for speed
-                                        output_hidden_states=False, # Don't compute hidden states for speed
-                                        return_dict_in_generate=False, # Return simple tensor for speed
-                                        synced_gpus=False,     # Disable GPU synchronization for speed
-                                    )
+                                    # STREAMING: Check if streaming mode is requested
+                                    streaming_mode = mode == "streaming" or prompt.get("streaming", False) if isinstance(prompt, dict) else False
+
+                                    if streaming_mode:
+                                        # STREAMING GENERATION: 250 tokens with word-level streaming
+                                        outputs = self.model.generate(
+                                            **inputs,
+                                            max_new_tokens=250,     # STREAMING: Full response length
+                                            min_new_tokens=1,
+                                            do_sample=True,         # STREAMING: Enable sampling for natural responses
+                                            num_beams=1,
+                                            temperature=0.3,        # STREAMING: Balanced temperature for quality
+                                            top_p=0.9,             # STREAMING: Broader sampling for natural speech
+                                            top_k=50,              # STREAMING: Expanded vocabulary
+                                            repetition_penalty=1.2,
+                                            pad_token_id=self.processor.tokenizer.eos_token_id if hasattr(self.processor, 'tokenizer') else None,
+                                            eos_token_id=self.processor.tokenizer.eos_token_id if hasattr(self.processor, 'tokenizer') else None,
+                                            use_cache=True,
+                                            early_stopping=True,
+                                            output_scores=False,
+                                            output_attentions=False,
+                                            output_hidden_states=False,
+                                            return_dict_in_generate=False,
+                                            synced_gpus=False,
+                                        )
+                                    else:
+                                        # ULTRA-LOW LATENCY: Maximum speed generation parameters for sub-50ms target
+                                        outputs = self.model.generate(
+                                            **inputs,
+                                            max_new_tokens=10,      # ULTRA-OPTIMIZED: Reduced to 10 tokens for maximum speed
+                                            min_new_tokens=1,       # ULTRA-REDUCED: Minimum 1 token for fastest response
+                                            do_sample=False,        # ULTRA-OPTIMIZED: Greedy decoding for maximum speed
+                                            num_beams=1,           # Keep single beam for speed
+                                            temperature=0.01,      # ULTRA-OPTIMIZED: Minimal temperature for fastest generation
+                                            top_p=0.7,            # ULTRA-OPTIMIZED: More focused sampling
+                                            top_k=10,             # ULTRA-OPTIMIZED: Minimal vocabulary for speed
+                                            repetition_penalty=1.4, # ULTRA-OPTIMIZED: Higher penalty for more concise responses
+                                            pad_token_id=self.processor.tokenizer.eos_token_id if hasattr(self.processor, 'tokenizer') else None,
+                                            eos_token_id=self.processor.tokenizer.eos_token_id if hasattr(self.processor, 'tokenizer') else None,
+                                            use_cache=True,         # Use KV cache for speed
+                                            # ULTRA-LOW LATENCY: Additional optimizations
+                                            early_stopping=True,   # Stop as soon as EOS is generated
+                                            output_scores=False,   # Don't compute scores for speed
+                                            output_attentions=False, # Don't compute attentions for speed
+                                            output_hidden_states=False, # Don't compute hidden states for speed
+                                            return_dict_in_generate=False, # Return simple tensor for speed
+                                            synced_gpus=False,     # Disable GPU synchronization for speed
+                                        )
 
                             inference_time = (time.time() - inference_start) * 1000
 
@@ -732,6 +758,189 @@ class VoxtralModel:
                 })
         
         return base_info
+
+    async def process_streaming_chunk(self, audio_data: np.ndarray, prompt: str = None,
+                                    chunk_id: str = None, mode: str = "streaming"):
+        """
+        STREAMING VOICE AGENT: Process audio with token-by-token streaming generation
+        Yields tokens as they are generated for immediate TTS processing
+        """
+        if not self.is_initialized:
+            raise RuntimeError("Voxtral model not initialized")
+
+        chunk_id = chunk_id or f"stream_{int(time.time() * 1000)}"
+        start_time = time.time()
+
+        try:
+            realtime_logger.info(f"🎙️ Starting streaming processing for chunk {chunk_id}")
+
+            # Audio preprocessing (same as regular processing)
+            preprocessing_start = time.time()
+
+            # Ensure audio is in the correct format
+            if audio_data.dtype != np.float32:
+                audio_data = audio_data.astype(np.float32)
+
+            # Normalize audio
+            if np.max(np.abs(audio_data)) > 0:
+                audio_data = audio_data / np.max(np.abs(audio_data)) * 0.95
+
+            preprocessing_time = (time.time() - preprocessing_start) * 1000
+            realtime_logger.debug(f"⚡ Audio preprocessing completed in {preprocessing_time:.1f}ms")
+
+            # Process with VoxtralProcessor
+            processor_start = time.time()
+
+            # Use the processor to handle audio input
+            if hasattr(self.processor, 'process_audio'):
+                inputs = self.processor.process_audio(audio_data, sampling_rate=16000)
+            else:
+                # Fallback to direct processing
+                inputs = self.processor(audio_data, sampling_rate=16000, return_tensors="pt")
+
+            # Move inputs to device
+            if isinstance(inputs, dict):
+                inputs = {k: v.to(self.device) if hasattr(v, 'to') else v for k, v in inputs.items()}
+            else:
+                inputs = inputs.to(self.device)
+
+            processor_time = (time.time() - processor_start) * 1000
+            realtime_logger.debug(f"⚡ Processor completed in {processor_time:.1f}ms")
+
+            # STREAMING INFERENCE: Generate tokens one by one
+            inference_start = time.time()
+
+            with torch.no_grad():
+                with torch.autocast(device_type='cuda', dtype=torch.float16):
+                    # STREAMING GENERATION: Iterative token generation for real-time streaming
+
+                    # Initialize generation state
+                    if isinstance(inputs, dict):
+                        input_ids = inputs.get('input_ids', inputs.get('audio_values'))
+                        attention_mask = inputs.get('attention_mask')
+                    else:
+                        input_ids = inputs
+                        attention_mask = None
+
+                    # Prepare for iterative generation
+                    current_input_ids = input_ids
+                    generated_tokens = []
+                    word_buffer = ""
+                    step = 0
+
+                    # Generation parameters
+                    generation_config = {
+                        'do_sample': True,
+                        'temperature': 0.3,
+                        'top_p': 0.9,
+                        'top_k': 50,
+                        'repetition_penalty': 1.2,
+                        'pad_token_id': self.processor.tokenizer.eos_token_id if hasattr(self.processor, 'tokenizer') else None,
+                        'eos_token_id': self.processor.tokenizer.eos_token_id if hasattr(self.processor, 'tokenizer') else None,
+                        'use_cache': True,
+                    }
+
+                    # STREAMING LOOP: Generate tokens one by one
+                    for step in range(250):  # Max 250 tokens
+                        # Generate next token
+                        with torch.no_grad():
+                            outputs = self.model.generate(
+                                current_input_ids,
+                                max_new_tokens=1,
+                                min_new_tokens=1,
+                                **generation_config,
+                                output_scores=False,
+                                output_attentions=False,
+                                output_hidden_states=False,
+                                return_dict_in_generate=False,
+                                synced_gpus=False,
+                            )
+
+                        # Extract new token
+                        new_token_id = outputs[0, -1].item()
+                        generated_tokens.append(new_token_id)
+
+                        # Decode token to text
+                        if hasattr(self.processor, 'tokenizer'):
+                            token_text = self.processor.tokenizer.decode([new_token_id], skip_special_tokens=True)
+                        else:
+                            token_text = f"<{new_token_id}>"
+
+                        # Add to word buffer
+                        word_buffer += token_text
+
+                        # Check if we have complete words (2+ words for TTS trigger)
+                        words = word_buffer.strip().split()
+                        if len(words) >= 2 or any(char in token_text for char in ['.', '!', '?', '\n']):
+                            # Send words for TTS processing
+                            words_to_send = ' '.join(words[:-1]) if len(words) > 2 else ' '.join(words)
+                            if words_to_send.strip():
+                                yield {
+                                    'type': 'words',
+                                    'text': words_to_send.strip(),
+                                    'tokens': generated_tokens[-len(words_to_send.split()):],
+                                    'step': step,
+                                    'is_complete': False,
+                                    'chunk_id': chunk_id,
+                                    'timestamp': time.time()
+                                }
+
+                                # Keep last word in buffer for next iteration
+                                word_buffer = words[-1] if len(words) > 2 else ""
+
+                        # Update input for next iteration
+                        current_input_ids = outputs
+
+                        # Check for EOS token
+                        if new_token_id == generation_config.get('eos_token_id'):
+                            break
+
+                        # Small delay to prevent overwhelming
+                        await asyncio.sleep(0.001)
+
+                    # Send any remaining text
+                    if word_buffer.strip():
+                        yield {
+                            'type': 'words',
+                            'text': word_buffer.strip(),
+                            'tokens': [generated_tokens[-1]] if generated_tokens else [],
+                            'step': step,
+                            'is_complete': False,
+                            'chunk_id': chunk_id,
+                            'timestamp': time.time()
+                        }
+
+            inference_time = (time.time() - inference_start) * 1000
+            total_time = (time.time() - start_time) * 1000
+
+            # Decode final output
+            if hasattr(self.processor, 'tokenizer'):
+                response_text = self.processor.tokenizer.decode(outputs[0], skip_special_tokens=True)
+            else:
+                response_text = str(outputs[0])
+
+            # Send completion marker
+            yield {
+                'type': 'complete',
+                'chunk_id': chunk_id,
+                'response_text': response_text,
+                'inference_time_ms': inference_time,
+                'total_time_ms': total_time,
+                'is_complete': True,
+                'timestamp': time.time()
+            }
+
+            realtime_logger.info(f"✅ Streaming generation completed for chunk {chunk_id} in {inference_time:.1f}ms")
+
+        except Exception as e:
+            realtime_logger.error(f"❌ Error in streaming processing for chunk {chunk_id}: {e}")
+            yield {
+                'type': 'error',
+                'error': str(e),
+                'chunk_id': chunk_id,
+                'is_complete': True,
+                'timestamp': time.time()
+            }
 
 # Global model instance for real-time streaming
 voxtral_model = VoxtralModel()

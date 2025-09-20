@@ -202,6 +202,65 @@ class TTSService:
                 "is_final": True
             }
 
+    async def process_word_stream(self, word_stream: AsyncGenerator[str, None], voice: Optional[str] = None):
+        """
+        STREAMING VOICE AGENT: Process streaming words from Voxtral for immediate TTS
+        Generates audio as words become available for ultra-low perceived latency
+        """
+        if not self.is_initialized:
+            await self.initialize()
+
+        voice = voice or self.default_voice
+        kokoro_voice = map_voice_to_kokoro(voice)
+
+        try:
+            tts_service_logger.info(f"🎵 Starting word stream processing with voice '{voice}' (Kokoro: '{kokoro_voice}')")
+
+            word_count = 0
+            async for words_text in word_stream:
+                if not words_text or not words_text.strip():
+                    continue
+
+                word_count += 1
+                tts_service_logger.debug(f"🎵 Processing word chunk {word_count}: '{words_text}'")
+
+                # Generate TTS for this word chunk
+                async for chunk_data in self.kokoro_model.synthesize_speech_streaming(words_text, kokoro_voice):
+                    if chunk_data.get('error'):
+                        yield {
+                            "success": False,
+                            "error": chunk_data['error'],
+                            "audio_chunk": None,
+                            "is_final": True,
+                            "word_chunk": word_count,
+                            "source_text": words_text
+                        }
+                        return
+
+                    yield {
+                        "success": True,
+                        "audio_chunk": chunk_data.get('audio_chunk'),
+                        "chunk_index": chunk_data.get('chunk_index', 0),
+                        "is_final": chunk_data.get('is_final', False),
+                        "voice": voice,
+                        "kokoro_voice": kokoro_voice,
+                        "sample_rate": 24000,
+                        "synthesis_time_ms": chunk_data.get('synthesis_time_ms', 0),
+                        "word_chunk": word_count,
+                        "source_text": words_text
+                    }
+
+            tts_service_logger.info(f"✅ Word stream processing completed: {word_count} word chunks processed")
+
+        except Exception as e:
+            tts_service_logger.error(f"❌ Word stream processing failed: {e}")
+            yield {
+                "success": False,
+                "error": str(e),
+                "audio_chunk": None,
+                "is_final": True
+            }
+
     def _format_audio_data(self, audio_data: Any, return_format: str) -> Any:
         """Format audio data according to requested format"""
         if return_format == "base64":

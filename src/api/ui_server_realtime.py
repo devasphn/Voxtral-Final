@@ -1653,14 +1653,49 @@ async def websocket_endpoint(websocket: WebSocket):
     except Exception as e:
         streaming_logger.error(f"[CONVERSATION] WebSocket error for {client_id}: {e}")
 
+async def detect_user_interruption(audio_chunk: np.ndarray, current_state: str = "idle") -> bool:
+    """
+    INTERRUPTION DETECTION: Detect when user starts speaking during TTS playback
+    Uses enhanced VAD with state-aware thresholds
+    """
+    try:
+        # Only check for interruption during speaking state
+        if current_state != "speaking":
+            return False
+
+        # Enhanced VAD for interruption detection
+        energy = np.mean(audio_chunk ** 2)
+
+        # Lower threshold during speaking to catch interruptions quickly
+        interruption_threshold = 0.003  # More sensitive than regular VAD
+
+        # Quick spectral check for human speech characteristics
+        if len(audio_chunk) >= 512:
+            fft = np.fft.rfft(audio_chunk[:512])
+            # Focus on human speech frequency range (300-3400 Hz)
+            speech_band_start = int(300 * len(fft) / (16000 / 2))
+            speech_band_end = int(3400 * len(fft) / (16000 / 2))
+            speech_energy = np.mean(np.abs(fft[speech_band_start:speech_band_end]))
+
+            # Interruption detected if both energy and speech characteristics present
+            is_interruption = (energy > interruption_threshold) and (speech_energy > 0.01)
+        else:
+            is_interruption = energy > interruption_threshold
+
+        return is_interruption
+
+    except Exception as e:
+        logger.error(f"❌ Interruption detection error: {e}")
+        return False
+
 async def handle_conversational_audio_chunk(websocket: WebSocket, data: dict, client_id: str):
     """Process conversational audio chunks with VAD using unified model manager"""
     try:
         chunk_start_time = time.time()
         chunk_id = data.get("chunk_id", 0)
-        
+
         streaming_logger.info(f"[CONVERSATION] Processing chunk {chunk_id} for {client_id}")
-        
+
         # Get services from unified manager
         unified_manager = get_unified_manager()
         audio_processor = get_audio_processor()
@@ -1718,51 +1753,167 @@ async def handle_conversational_audio_chunk(websocket: WebSocket, data: dict, cl
             "audio_length": len(audio_array)
         })
         
+        # Check if streaming mode is requested
+        streaming_mode = mode == "streaming" or data.get("streaming", False)
+
         try:
-            result = await voxtral_model.process_realtime_chunk(
-                audio_tensor, 
-                chunk_id, 
-                mode=mode, 
-                prompt=prompt
-            )
-            
-            # End Voxtral timing
-            voxtral_processing_time = performance_monitor.end_timing(voxtral_timing_id)
-            
-            if result['success']:
-                response = result['response']
-                processing_time = result['processing_time_ms']
+            if streaming_mode:
+                # STREAMING MODE: Process with token-by-token streaming
+                streaming_logger.info(f"🎙️ Starting streaming processing for chunk {chunk_id}")
 
-                # Check for response deduplication
-                last_response = recent_responses.get(client_id, "")
-                is_duplicate = response and response.strip() and response == last_response
+                # Import streaming coordinator
+                from src.streaming.streaming_coordinator import streaming_coordinator
 
-                if not is_duplicate:
-                    # Send text response first
+                # Start streaming session
+                session_id = await streaming_coordinator.start_streaming_session(f"{client_id}_{chunk_id}")
+
+                # Check for interruption first
+                current_state = getattr(streaming_coordinator, 'state', 'idle')
+                is_interruption = await detect_user_interruption(audio_array, current_state.value if hasattr(current_state, 'value') else str(current_state))
+
+                if is_interruption:
+                    streaming_logger.info(f"🛑 User interruption detected for {client_id}")
+                    await streaming_coordinator.handle_interruption("user_speech")
                     await websocket.send_text(json.dumps({
-                        "type": "response",
-                        "mode": mode,
-                        "text": response,
+                        "type": "interruption",
+                        "message": "User interruption detected",
                         "chunk_id": chunk_id,
-                        "processing_time_ms": round(processing_time, 1),
-                        "audio_duration_ms": len(audio_array) / config.audio.sample_rate * 1000,
-                        "timestamp": data.get("timestamp", time.time()),
-                        "skipped_reason": result.get('skipped_reason', None),
-                        "had_speech": result.get('had_speech', True)
+                        "timestamp": time.time()
                     }))
+                    return
 
-                    # Generate TTS audio if we have a meaningful response using Kokoro TTS
-                    if response and response.strip():
+                # Process with streaming Voxtral
+                voxtral_stream = voxtral_model.process_streaming_chunk(
+                    audio_array,
+                    prompt=prompt,
+                    chunk_id=chunk_id,
+                    mode="streaming"
+                )
+
+                # Process streaming tokens and coordinate TTS
+                full_response = ""
+                words_sent_for_tts = []
+
+                async for stream_chunk in streaming_coordinator.process_voxtral_stream(voxtral_stream):
+                    if stream_chunk.type == 'words_ready':
+                        words_text = stream_chunk.content['text']
+                        full_response += " " + words_text
+                        words_sent_for_tts.append(words_text)
+
+                        # Send words to client immediately
+                        await websocket.send_text(json.dumps({
+                            "type": "streaming_words",
+                            "text": words_text,
+                            "full_text_so_far": full_response.strip(),
+                            "chunk_id": chunk_id,
+                            "sequence": stream_chunk.content['sequence_number'],
+                            "timestamp": time.time()
+                        }))
+
+                        # Start TTS for these words immediately
                         try:
-                            # Start TTS timing
-                            tts_timing_id = performance_monitor.start_timing("kokoro_generation", {
-                                "chunk_id": chunk_id,
-                                "text_length": len(response),
-                                "voice": "hm_omega"  # Kokoro Hindi voice
+                            tts_timing_id = performance_monitor.start_timing("kokoro_streaming", {
+                                "chunk_id": f"{chunk_id}_tts_{stream_chunk.content['sequence_number']}",
+                                "text_length": len(words_text),
+                                "voice": "hm_omega"
                             })
 
-                            # Generate speech using Kokoro TTS model
-                            result = await kokoro_model.synthesize_speech(
+                            # Generate TTS for words using streaming
+                            async for tts_chunk in kokoro_model.synthesize_speech_streaming(
+                                words_text,
+                                voice="hm_omega",
+                                chunk_id=f"{chunk_id}_tts_{stream_chunk.content['sequence_number']}"
+                            ):
+                                if tts_chunk.get('audio_chunk'):
+                                    # Send audio chunk immediately
+                                    audio_b64 = base64.b64encode(tts_chunk['audio_chunk']).decode('utf-8')
+                                    await websocket.send_text(json.dumps({
+                                        "type": "streaming_audio",
+                                        "audio_data": audio_b64,
+                                        "chunk_index": tts_chunk['chunk_index'],
+                                        "is_final": tts_chunk['is_final'],
+                                        "sample_rate": tts_chunk['sample_rate'],
+                                        "text_source": words_text,
+                                        "timestamp": time.time()
+                                    }))
+
+                                elif tts_chunk.get('is_final'):
+                                    tts_time = performance_monitor.end_timing(tts_timing_id)
+                                    streaming_logger.info(f"✅ TTS chunk completed in {tts_time:.1f}ms")
+
+                        except Exception as tts_error:
+                            streaming_logger.error(f"❌ TTS streaming error: {tts_error}")
+
+                    elif stream_chunk.type == 'session_complete':
+                        # End Voxtral timing
+                        voxtral_processing_time = performance_monitor.end_timing(voxtral_timing_id)
+
+                        # Send completion
+                        await websocket.send_text(json.dumps({
+                            "type": "streaming_complete",
+                            "full_response": full_response.strip(),
+                            "total_words_sent": len(words_sent_for_tts),
+                            "voxtral_time_ms": voxtral_processing_time,
+                            "chunk_id": chunk_id,
+                            "timestamp": time.time()
+                        }))
+                        break
+
+                    elif stream_chunk.type == 'error':
+                        streaming_logger.error(f"❌ Streaming error: {stream_chunk.content}")
+                        await websocket.send_text(json.dumps({
+                            "type": "error",
+                            "message": f"Streaming error: {stream_chunk.content.get('error', 'Unknown error')}",
+                            "chunk_id": chunk_id
+                        }))
+                        break
+
+            else:
+                # REGULAR MODE: Original processing
+                result = await voxtral_model.process_realtime_chunk(
+                    audio_tensor,
+                    chunk_id,
+                    mode=mode,
+                    prompt=prompt
+                )
+
+                # End Voxtral timing
+                voxtral_processing_time = performance_monitor.end_timing(voxtral_timing_id)
+
+                if result['success']:
+                    response = result['response']
+                    processing_time = result['processing_time_ms']
+
+                    # Check for response deduplication
+                    last_response = recent_responses.get(client_id, "")
+                    is_duplicate = response and response.strip() and response == last_response
+
+                    if not is_duplicate:
+                        # Send text response first
+                        await websocket.send_text(json.dumps({
+                            "type": "response",
+                            "mode": mode,
+                            "text": response,
+                            "chunk_id": chunk_id,
+                            "processing_time_ms": round(processing_time, 1),
+                            "audio_duration_ms": len(audio_array) / config.audio.sample_rate * 1000,
+                            "timestamp": data.get("timestamp", time.time()),
+                            "skipped_reason": result.get('skipped_reason', None),
+                            "had_speech": result.get('had_speech', True)
+                        }))
+
+                        # Generate TTS audio if we have a meaningful response using Kokoro TTS
+                        if response and response.strip():
+                            try:
+                                # Start TTS timing
+                                tts_timing_id = performance_monitor.start_timing("kokoro_generation", {
+                                    "chunk_id": chunk_id,
+                                    "text_length": len(response),
+                                    "voice": "hm_omega"  # Kokoro Hindi voice
+                                })
+
+                                # Generate speech using Kokoro TTS model
+                                result = await kokoro_model.synthesize_speech(
                                 text=response,
                                 voice="hm_omega"  # Use Kokoro Hindi voice instead of ऋतिका
                             )
