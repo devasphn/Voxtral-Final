@@ -1041,6 +1041,14 @@ async def home(request: Request):
                     }
                     break;
 
+                case 'streaming_complete':
+                    // Handle streaming completion
+                    if (streamingModeEnabled) {
+                        handleStreamingComplete(data);
+                        log(`[COMPLETE] Streaming complete: ${data.total_words_sent || 0} words sent`);
+                    }
+                    break;
+
                 default:
                     log(`Unknown message type: ${data.type}`);
             }
@@ -1569,25 +1577,67 @@ async def home(request: Request):
         function handleStreamingAudio(data) {
             // Handle streaming audio chunks for immediate playback
             try {
+                log(`[AUDIO] Received streaming audio chunk ${data.chunk_index} (${data.audio_data.length} chars, final: ${data.is_final})`);
+
                 const audioBytes = Uint8Array.from(atob(data.audio_data), c => c.charCodeAt(0));
                 const audioBlob = new Blob([audioBytes], { type: 'audio/wav' });
                 const audioUrl = URL.createObjectURL(audioBlob);
 
+                log(`[AUDIO] Created audio blob: ${audioBlob.size} bytes, type: ${audioBlob.type}`);
+
                 // Create and play audio immediately
                 const audio = new Audio(audioUrl);
-                audio.play().catch(e => {
-                    log(`Error playing streaming audio: ${e.message}`);
+
+                // Add detailed event listeners for debugging
+                audio.addEventListener('loadstart', () => {
+                    log(`[AUDIO] Started loading audio chunk ${data.chunk_index}`);
                 });
 
-                log(`[AUDIO] Playing streaming audio chunk ${data.chunk_index}`);
+                audio.addEventListener('canplay', () => {
+                    log(`[AUDIO] Audio chunk ${data.chunk_index} can start playing`);
+                });
 
-                // Clean up URL after playback
+                audio.addEventListener('play', () => {
+                    log(`[AUDIO] Started playing audio chunk ${data.chunk_index}`);
+                });
+
                 audio.addEventListener('ended', () => {
+                    log(`[AUDIO] Finished playing audio chunk ${data.chunk_index}`);
                     URL.revokeObjectURL(audioUrl);
                 });
 
+                audio.addEventListener('error', (e) => {
+                    log(`[ERROR] Audio playback error for chunk ${data.chunk_index}: ${e.message || 'Unknown error'}`);
+                    log(`[ERROR] Audio error details: code=${audio.error?.code}, message=${audio.error?.message}`);
+                    URL.revokeObjectURL(audioUrl);
+                });
+
+                // Attempt to play with better error handling
+                audio.play().then(() => {
+                    log(`[AUDIO] Successfully started playing streaming audio chunk ${data.chunk_index}`);
+                }).catch(e => {
+                    log(`[ERROR] Failed to play streaming audio chunk ${data.chunk_index}: ${e.message}`);
+                    log(`[ERROR] This might be due to browser autoplay policy - user interaction required`);
+
+                    // Show user notification about audio playback
+                    updateStatus(`[AUDIO] Audio ready - click anywhere to enable playback`, 'warning');
+
+                    // Try to play on next user interaction
+                    const playOnInteraction = () => {
+                        audio.play().then(() => {
+                            log(`[AUDIO] Audio playback enabled after user interaction`);
+                            updateStatus(`[AUDIO] Audio playback enabled`, 'success');
+                        }).catch(err => {
+                            log(`[ERROR] Still failed to play audio after user interaction: ${err.message}`);
+                        });
+                        document.removeEventListener('click', playOnInteraction);
+                    };
+                    document.addEventListener('click', playOnInteraction, { once: true });
+                });
+
             } catch (error) {
-                log(`Error handling streaming audio: ${error.message}`);
+                log(`[ERROR] Error handling streaming audio: ${error.message}`);
+                console.error('Streaming audio error:', error);
             }
         }
 
@@ -1607,6 +1657,42 @@ async def home(request: Request):
             // Show interruption message
             updateStatus('[EMOJI] Interruption detected - ready for new input', 'info');
             log('[EMOJI] User interruption handled - cleared streaming state');
+        }
+
+        function handleStreamingComplete(data) {
+            // Handle streaming completion - finalize the response
+            try {
+                const currentResponseDiv = document.getElementById('current-streaming-response');
+                if (currentResponseDiv) {
+                    // Remove the streaming indicator and make it a permanent response
+                    currentResponseDiv.id = `response-${Date.now()}`;
+                    currentResponseDiv.classList.remove('streaming');
+                    currentResponseDiv.classList.add('completed');
+
+                    // Add completion indicator
+                    const completionIndicator = document.createElement('span');
+                    completionIndicator.className = 'completion-indicator';
+                    completionIndicator.textContent = ' ✓';
+                    completionIndicator.style.color = '#4CAF50';
+                    completionIndicator.style.fontSize = '0.8em';
+                    currentResponseDiv.appendChild(completionIndicator);
+                }
+
+                // Update status
+                const totalWords = data.total_words_sent || 0;
+                const fullResponse = data.full_response || '';
+                updateStatus(`[COMPLETE] Streaming finished: ${totalWords} words sent`, 'success');
+
+                // Log completion details
+                log(`[COMPLETE] Streaming complete: ${totalWords} words`);
+                if (fullResponse) {
+                    log(`[COMPLETE] Full response: "${fullResponse.substring(0, 100)}${fullResponse.length > 100 ? '...' : ''}"`);
+                }
+
+            } catch (error) {
+                log(`[ERROR] Error handling streaming completion: ${error.message}`);
+                console.error('Streaming completion error:', error);
+            }
         }
 
         // Initialize on page load
@@ -1844,6 +1930,7 @@ async def handle_conversational_audio_chunk(websocket: WebSocket, data: dict, cl
             return
         
         try:
+            import numpy as np  # Explicit import to ensure availability
             audio_bytes = base64.b64decode(audio_b64)
             audio_array = np.frombuffer(audio_bytes, dtype=np.float32)
         except Exception as e:
@@ -1859,9 +1946,9 @@ async def handle_conversational_audio_chunk(websocket: WebSocket, data: dict, cl
             streaming_logger.error(f"[CONVERSATION] Audio preprocessing error for chunk {chunk_id}: {e}")
             return
         
-        # Smart Conversation Mode - unified processing with performance monitoring
-        mode = "conversation"  # Always use conversation mode
-        prompt = ""  # Prompt is hardcoded in the model
+        # Smart Conversational AI Mode - unified processing with performance monitoring
+        mode = "conversation"  # Use conversation mode for AI responses
+        prompt = "You are a helpful AI assistant. Respond naturally to the user's speech."  # Conversation prompt
         
         # Start performance timing
         voxtral_timing_id = performance_monitor.start_timing("voxtral_processing", {
@@ -1904,7 +1991,7 @@ async def handle_conversational_audio_chunk(websocket: WebSocket, data: dict, cl
                     audio_array,
                     prompt=prompt,
                     chunk_id=chunk_id,
-                    mode="streaming"
+                    mode=mode  # Use the correct mode (transcribe for speech recognition)
                 )
 
                 # Process streaming tokens and coordinate TTS
@@ -1942,14 +2029,63 @@ async def handle_conversational_audio_chunk(websocket: WebSocket, data: dict, cl
                                 chunk_id=f"{chunk_id}_tts_{stream_chunk.content['sequence_number']}"
                             ):
                                 if tts_chunk.get('audio_chunk'):
+                                    # Convert raw audio to proper WAV format for browser playback
+                                    try:
+                                        import soundfile as sf
+                                        from io import BytesIO
+
+                                        # Get audio data and sample rate
+                                        audio_data = tts_chunk['audio_chunk']
+                                        sample_rate = tts_chunk.get('sample_rate', 24000)
+
+                                        # Import numpy at the top of this block
+                                        import numpy as np
+
+                                        # Convert audio data to numpy array if needed
+                                        if isinstance(audio_data, bytes):
+                                            # Convert bytes to numpy array (assuming float32)
+                                            audio_data = np.frombuffer(audio_data, dtype=np.float32)
+                                        elif hasattr(audio_data, 'detach'):
+                                            # Convert torch tensor to numpy
+                                            audio_data = audio_data.detach().cpu().numpy()
+                                        elif not isinstance(audio_data, np.ndarray):
+                                            # Convert other types to numpy array
+                                            audio_data = np.array(audio_data, dtype=np.float32)
+
+                                        # Normalize audio to prevent clipping
+                                        if len(audio_data) > 0:
+                                            max_val = np.max(np.abs(audio_data))
+                                            if max_val > 1.0:
+                                                audio_data = audio_data / max_val
+
+                                        # Create WAV file in memory
+                                        wav_buffer = BytesIO()
+                                        sf.write(wav_buffer, audio_data, sample_rate, format='WAV', subtype='PCM_16')
+                                        wav_bytes = wav_buffer.getvalue()
+                                        wav_buffer.close()
+
+                                        # Validate WAV file
+                                        if len(wav_bytes) < 44:  # WAV header is 44 bytes
+                                            raise Exception(f"WAV file too small: {len(wav_bytes)} bytes")
+
+                                        # Convert to base64
+                                        audio_b64 = base64.b64encode(wav_bytes).decode('utf-8')
+
+                                        streaming_logger.debug(f"[AUDIO] Created WAV chunk: {len(wav_bytes)} bytes from {len(audio_data)} samples")
+
+                                    except Exception as wav_error:
+                                        streaming_logger.error(f"[ERROR] WAV conversion failed: {wav_error}")
+                                        # Fallback to raw audio
+                                        audio_b64 = base64.b64encode(tts_chunk['audio_chunk']).decode('utf-8')
+
                                     # Send audio chunk immediately
-                                    audio_b64 = base64.b64encode(tts_chunk['audio_chunk']).decode('utf-8')
                                     await websocket.send_text(json.dumps({
                                         "type": "streaming_audio",
                                         "audio_data": audio_b64,
                                         "chunk_index": tts_chunk['chunk_index'],
                                         "is_final": tts_chunk['is_final'],
-                                        "sample_rate": tts_chunk['sample_rate'],
+                                        "sample_rate": tts_chunk.get('sample_rate', 24000),
+                                        "format": "wav",  # Indicate this is WAV format
                                         "text_source": words_text,
                                         "timestamp": time.time()
                                     }))
@@ -2203,5 +2339,8 @@ if __name__ == "__main__":
         app,
         host=config.server.host,
         port=config.server.http_port,
-        log_level="info"
+        log_level="info",
+        ws_max_size=2097152,  # 2MB WebSocket message size limit for audio data
+        ws_ping_interval=20,
+        ws_ping_timeout=60
     )

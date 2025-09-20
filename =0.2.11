@@ -1,0 +1,17 @@
+Collecting pyaudio
+  Downloading PyAudio-0.2.14.tar.gz (47 kB)
+     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 47.1/47.1 kB 1.8 MB/s eta 0:00:00
+  Installing build dependencies: started
+  Installing build dependencies: finished with status 'done'
+  Getting requirements to build wheel: started
+  Getting requirements to build wheel: finished with status 'done'
+  Preparing metadata (pyproject.toml): started
+  Preparing metadata (pyproject.toml): finished with status 'done'
+Building wheels for collected packages: pyaudio
+  Building wheel for pyaudio (pyproject.toml): started
+  Building wheel for pyaudio (pyproject.toml): finished with status 'done'
+  Created wheel for pyaudio: filename=pyaudio-0.2.14-cp311-cp311-linux_x86_64.whl size=67425 sha256=87670649536415ada39fc91def9a2af1c204e6f0f1f60783550ea52ec4a6204c
+  Stored in directory: /root/.cache/pip/wheels/80/b1/c1/67e4ef443de2665d86031d4760508094eab5de37d5d64d9c27
+Successfully built pyaudio
+Installing collected packages: pyaudio
+Successfully installed pyaudio

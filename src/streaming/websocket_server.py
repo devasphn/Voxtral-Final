@@ -187,9 +187,22 @@ class WebSocketServer:
 
             # Send audio response if available
             if len(result['response_audio']) > 0:
-                # Convert audio to base64 for transmission
-                audio_bytes = result['response_audio'].astype(np.float32).tobytes()
-                audio_b64 = base64.b64encode(audio_bytes).decode('utf-8')
+                # Convert audio to base64 for transmission - handle both PyTorch tensors and NumPy arrays
+                try:
+                    response_audio = result['response_audio']
+                    # Check if it's a PyTorch tensor
+                    if hasattr(response_audio, 'detach'):
+                        # Convert PyTorch tensor to NumPy array first
+                        audio_np = response_audio.detach().cpu().numpy().astype(np.float32)
+                    else:
+                        # Already a NumPy array
+                        audio_np = response_audio.astype(np.float32)
+
+                    audio_bytes = audio_np.tobytes()
+                    audio_b64 = base64.b64encode(audio_bytes).decode('utf-8')
+                except Exception as conversion_error:
+                    logger.error(f"[ERROR] Audio conversion error in websocket: {conversion_error}, audio type: {type(result['response_audio'])}")
+                    continue
 
                 await self.send_message(websocket, {
                     "type": "speech_response",

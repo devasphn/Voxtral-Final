@@ -99,10 +99,18 @@ class StreamingCoordinator:
         
         try:
             async for token_data in voxtral_stream:
-                # Enhanced error handling for token data
+                # Enhanced error handling for token data with numpy type checking
                 if not isinstance(token_data, dict):
-                    streaming_logger.warning(f"[WARN] Invalid token data type: {type(token_data)}")
-                    continue
+                    streaming_logger.warning(f"[WARN] Invalid token data type: {type(token_data)}, value: {token_data}")
+                    # If it's a numpy type, try to convert it
+                    if hasattr(token_data, 'item'):
+                        streaming_logger.debug(f"[DEBUG] Converting numpy type to Python type")
+                        try:
+                            token_data = {'type': 'error', 'error': f'Invalid token data: {token_data.item()}'}
+                        except:
+                            continue
+                    else:
+                        continue
 
                 # Check for interruption
                 if self.interruption_detected:
@@ -116,8 +124,17 @@ class StreamingCoordinator:
                     break
 
                 if token_data.get('type') == 'words':
-                    words_text = token_data.get('text', '').strip()
-                    # Enhanced text validation
+                    words_text = token_data.get('text', '')
+
+                    # Enhanced text validation with numpy type handling
+                    if not isinstance(words_text, str):
+                        # Handle numpy types and other non-string types
+                        if hasattr(words_text, 'item'):  # numpy scalar
+                            words_text = str(words_text.item())
+                        else:
+                            words_text = str(words_text)
+
+                    words_text = words_text.strip()
                     if words_text and isinstance(words_text, str):
                         # Add to word buffer with enhanced validation
                         try:

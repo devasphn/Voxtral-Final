@@ -42,7 +42,7 @@ spectrogram:
   
 streaming:
   max_connections: 100
-  buffer_size: 2048  # OPTIMIZED: Reduced for lower latency (was 4096)
+  buffer_size: 2097152  # FIXED: Increased to 2MB for audio data (was 2048)
   timeout_seconds: 300
   latency_target_ms: 100  # OPTIMIZED: More aggressive target (was 200)
 

@@ -1,0 +1,29 @@
+{
+  "total_tests": 4,
+  "passed_tests": 1,
+  "failed_tests": 3,
+  "success_rate": 25.0,
+  "overall_status": "FAILED",
+  "test_results": [
+    {
+      "test_name": "streaming_mode_activation",
+      "passed": false,
+      "details": "Streaming mode not detected"
+    },
+    {
+      "test_name": "numpy_float32_fix",
+      "passed": false,
+      "details": "Numpy.float32 error still present"
+    },
+    {
+      "test_name": "long_token_generation",
+      "passed": false,
+      "details": "Generated 0 words (target: 15+). Text: \"...\""
+    },
+    {
+      "test_name": "performance_targets",
+      "passed": true,
+      "details": "Met 0/0 targets. "
+    }
+  ]
+}

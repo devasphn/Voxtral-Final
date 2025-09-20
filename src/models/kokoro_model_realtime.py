@@ -270,9 +270,25 @@ class KokoroTTSModel:
             chunk_count = 0
             for i, (gs, ps, audio) in enumerate(generator):
                 if audio is not None and len(audio) > 0:
-                    # Convert to bytes immediately and yield
-                    audio_bytes = (audio * 32767).astype(np.int16).tobytes()
-                    chunk_count += 1
+                    # Convert to bytes immediately and yield - handle both PyTorch tensors and NumPy arrays
+                    try:
+                        # Check if it's a PyTorch tensor
+                        if hasattr(audio, 'detach'):
+                            # Convert PyTorch tensor to NumPy array first
+                            audio_np = audio.detach().cpu().numpy()
+                        else:
+                            # Already a NumPy array
+                            audio_np = audio
+
+                        # Convert to int16 and then to bytes
+                        audio_bytes = (audio_np * 32767).astype(np.int16).tobytes()
+                        chunk_count += 1
+
+                    except Exception as conversion_error:
+                        import traceback
+                        tts_logger.error(f"[ERROR] Audio conversion error: {conversion_error}, audio type: {type(audio)}")
+                        tts_logger.error(f"[ERROR] Full traceback: {traceback.format_exc()}")
+                        continue
 
                     # Yield the audio chunk for immediate playback
                     yield {
@@ -302,7 +318,9 @@ class KokoroTTSModel:
             }
 
         except Exception as e:
+            import traceback
             tts_logger.error(f"[ERROR] Streaming synthesis failed for chunk {chunk_id}: {e}")
+            tts_logger.error(f"[ERROR] Full traceback: {traceback.format_exc()}")
             # Send error marker
             yield {
                 'audio_chunk': None,
