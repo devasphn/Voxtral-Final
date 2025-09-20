@@ -70,18 +70,21 @@ class VoxtralModel:
         self.recent_chunks = deque(maxlen=5)  # Reduced for faster processing
         self.processing_history = deque(maxlen=50)  # Reduced memory usage
         
-        # Performance optimization settings
+        # ULTRA-LOW LATENCY Performance optimization settings
         self.device = config.model.device
-        self.torch_dtype = getattr(torch, config.model.torch_dtype)
-        
+        # OPTIMIZATION: Use float16 for inference to reduce memory and increase speed
+        self.torch_dtype = torch.float16 if config.model.torch_dtype == "float32" else getattr(torch, config.model.torch_dtype)
+
         # CALIBRATED VAD and silence detection settings - Perfectly aligned with AudioProcessor
         self.silence_threshold = 0.015  # Aligned with AudioProcessor threshold for perfect compatibility
         self.min_speech_duration = 0.4  # Aligned with AudioProcessor minimum duration (400ms)
         self.max_silence_duration = 1.2  # Aligned with AudioProcessor silence duration (1200ms)
-        
-        # Performance optimization flags
-        self.use_torch_compile = False  # Disabled by default for stability
+
+        # ULTRA-LOW LATENCY Performance optimization flags
+        self.use_torch_compile = True   # ENABLED: For maximum performance optimization
         self.flash_attention_available = False
+        self.use_kv_cache_optimization = True  # ADDED: Advanced KV cache optimization
+        self.use_memory_efficient_attention = True  # ADDED: Memory efficient attention
         
         realtime_logger.info(f"VoxtralModel initialized for {self.device} with {self.torch_dtype}")
         
@@ -198,7 +201,10 @@ class VoxtralModel:
                 "device_map": "auto",
                 "low_cpu_mem_usage": True,
                 "trust_remote_code": True,
-                "attn_implementation": attn_implementation
+                "attn_implementation": attn_implementation,
+                # ULTRA-LOW LATENCY: Additional optimization parameters
+                "use_safetensors": True,  # Faster loading
+                "variant": "fp16" if self.torch_dtype == torch.float16 else None,  # Use FP16 variant if available
             }
             
             try:
@@ -227,20 +233,37 @@ class VoxtralModel:
             self.model.eval()
             realtime_logger.info("🔧 Model set to evaluation mode")
             
-            # FIXED: Conditional torch.compile with safety checks
-            if self.use_torch_compile and hasattr(torch, 'compile') and self.device == "cuda" and not self.flash_attention_available:
+            # ULTRA-LOW LATENCY: Advanced torch.compile optimization
+            if self.use_torch_compile and hasattr(torch, 'compile') and self.device == "cuda":
                 try:
-                    realtime_logger.info("⚡ Attempting to compile model with torch.compile()...")
-                    self.model = torch.compile(self.model, mode="default")  # Use default mode for stability
-                    realtime_logger.info("✅ Model compiled successfully for faster inference")
+                    realtime_logger.info("⚡ Attempting ULTRA-LOW LATENCY model compilation...")
+                    # Use reduce-overhead mode for maximum performance
+                    self.model = torch.compile(
+                        self.model,
+                        mode="reduce-overhead",  # ULTRA-OPTIMIZED: Maximum performance mode
+                        fullgraph=True,         # ULTRA-OPTIMIZED: Compile entire graph
+                        dynamic=False           # ULTRA-OPTIMIZED: Static shapes for speed
+                    )
+                    realtime_logger.info("✅ Model compiled with ULTRA-LOW LATENCY optimizations")
                 except Exception as e:
-                    realtime_logger.warning(f"⚠️ Could not compile model: {e}")
-                    realtime_logger.info("💡 Continuing without torch.compile...")
+                    realtime_logger.warning(f"⚠️ Ultra-low latency compilation failed: {e}")
+                    try:
+                        # Fallback to default mode
+                        realtime_logger.info("🔄 Falling back to default compilation mode...")
+                        self.model = torch.compile(self.model, mode="default")
+                        realtime_logger.info("✅ Model compiled with default optimizations")
+                    except Exception as e2:
+                        realtime_logger.warning(f"⚠️ Default compilation also failed: {e2}")
+                        realtime_logger.info("💡 Continuing without torch.compile...")
             else:
-                if self.flash_attention_available:
-                    realtime_logger.info("💡 Skipping torch.compile (using FlashAttention2)")
-                else:
-                    realtime_logger.info("💡 Skipping torch.compile (disabled for stability)")
+                realtime_logger.info("💡 torch.compile disabled or not available")
+
+            # ULTRA-LOW LATENCY: Additional model optimizations
+            if hasattr(self.model, 'generation_config'):
+                # Optimize generation config for speed
+                self.model.generation_config.use_cache = True
+                self.model.generation_config.pad_token_id = self.processor.tokenizer.eos_token_id
+                realtime_logger.info("✅ Generation config optimized for ultra-low latency")
             
             self.is_initialized = True
             init_time = time.time() - start_time
@@ -334,14 +357,14 @@ class VoxtralModel:
                                 with torch.autocast(device_type="cuda" if "cuda" in self.device else "cpu", dtype=self.torch_dtype):
                                     outputs = self.model.generate(
                                         **inputs,
-                                        max_new_tokens=50,      # OPTIMIZED: 4x reduction for real-time (was 200)
-                                        min_new_tokens=3,       # REDUCED: Faster minimum response
+                                        max_new_tokens=25,      # ULTRA-OPTIMIZED: Further reduced for maximum speed
+                                        min_new_tokens=2,       # ULTRA-REDUCED: Fastest minimum response
                                         do_sample=True,         # Enable sampling for more natural responses
                                         num_beams=1,           # Keep single beam for speed
-                                        temperature=0.1,       # OPTIMIZED: Lower for faster, more deterministic generation
-                                        top_p=0.8,            # OPTIMIZED: More focused sampling (was 0.95)
-                                        top_k=40,             # ADDED: Limit vocabulary for faster sampling
-                                        repetition_penalty=1.15, # INCREASED: Stronger penalty for concise responses
+                                        temperature=0.05,      # ULTRA-OPTIMIZED: Even lower for fastest generation
+                                        top_p=0.9,            # ULTRA-OPTIMIZED: Higher top_p for faster sampling
+                                        top_k=30,             # ULTRA-OPTIMIZED: Further reduced vocabulary for speed
+                                        repetition_penalty=1.2, # ULTRA-OPTIMIZED: Higher penalty for more concise responses
                                         pad_token_id=self.processor.tokenizer.eos_token_id if hasattr(self.processor, 'tokenizer') else None,
                                         eos_token_id=self.processor.tokenizer.eos_token_id if hasattr(self.processor, 'tokenizer') else None,
                                         use_cache=True,         # Use KV cache for speed

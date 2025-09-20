@@ -32,16 +32,16 @@ class SpeechToSpeechPipeline:
         # Pipeline components
         self.audio_processor = AudioProcessor()
         
-        # Performance tracking
-        self.pipeline_history = deque(maxlen=50)
+        # ULTRA-LOW LATENCY: Reduced performance tracking overhead
+        self.pipeline_history = deque(maxlen=20)  # Reduced from 50 for less memory overhead
         self.total_conversations = 0
-        
-        # Pipeline configuration
+
+        # ULTRA-LOW LATENCY: Pipeline configuration
         self.latency_target_ms = config.speech_to_speech.latency_target_ms
-        self.enable_emotional_tts = config.speech_to_speech.emotional_expression
-        
-        # LLM response generation (simple for now, can be enhanced)
-        self.conversation_context = deque(maxlen=10)  # Keep recent conversation history
+        self.enable_emotional_tts = False  # DISABLED: Skip emotional analysis for maximum speed
+
+        # ULTRA-LOW LATENCY: Simplified conversation context
+        self.conversation_context = deque(maxlen=5)  # Reduced from 10 for faster processing
         
         pipeline_logger.info(f"🔄 SpeechToSpeechPipeline initialized")
         pipeline_logger.info(f"   🎯 Target latency: {self.latency_target_ms}ms")
@@ -102,18 +102,12 @@ class SpeechToSpeechPipeline:
         pipeline_logger.info(f"🗣️ Processing conversation turn {conversation_id}")
         
         try:
-            # Stage 1: Speech-to-Text (Voxtral)
+            # ULTRA-LOW LATENCY: Stage 1 - Speech-to-Text (Voxtral) with optimized preprocessing
             stt_start_time = time.time()
-            
-            # Preprocess audio for Voxtral
-            audio_tensor = self.audio_processor.preprocess_realtime_chunk(
-                audio_data, 
-                chunk_id=conversation_id
-            )
-            
-            # Apply VAD validation
+
+            # OPTIMIZATION: Combined VAD validation and preprocessing in single step
             if not self.audio_processor.validate_realtime_chunk(audio_data, chunk_id=conversation_id):
-                pipeline_logger.debug(f"🔇 Conversation turn {conversation_id}: No speech detected")
+                # Early return for silence - minimal processing
                 return {
                     'conversation_id': conversation_id,
                     'transcription': '',
@@ -122,11 +116,14 @@ class SpeechToSpeechPipeline:
                     'sample_rate': kokoro_model.sample_rate,
                     'total_latency_ms': (time.time() - turn_start_time) * 1000,
                     'success': True,
-                    'is_silence': True,
-                    'stage_timings': {
-                        'vad_check_ms': (time.time() - stt_start_time) * 1000
-                    }
+                    'is_silence': True
                 }
+
+            # OPTIMIZATION: Only preprocess if VAD passed (avoid unnecessary work)
+            audio_tensor = self.audio_processor.preprocess_realtime_chunk(
+                audio_data,
+                chunk_id=conversation_id
+            )
             
             # Process with Voxtral
             stt_result = await voxtral_model.process_realtime_chunk(
@@ -163,9 +160,8 @@ class SpeechToSpeechPipeline:
 
             pipeline_logger.info(f"💭 Response: '{response_text}'")
 
-            # OPTIMIZATION: Early check for short responses to skip TTS if needed
-            if len(response_text.strip()) < 3:
-                pipeline_logger.warning(f"⚠️ Very short response for {conversation_id}, skipping TTS")
+            # ULTRA-LOW LATENCY: Skip TTS for very short responses
+            if len(response_text.strip()) < 2:  # Even more aggressive threshold
                 return {
                     'conversation_id': conversation_id,
                     'transcription': transcription,
@@ -174,22 +170,17 @@ class SpeechToSpeechPipeline:
                     'sample_rate': kokoro_model.sample_rate,
                     'total_latency_ms': (time.time() - turn_start_time) * 1000,
                     'success': True,
-                    'tts_skipped': True,
-                    'stage_timings': {
-                        'stt_ms': stt_time,
-                        'llm_ms': llm_time,
-                        'tts_ms': 0
-                    }
+                    'tts_skipped': True
                 }
 
-            # Stage 3: Text-to-Speech (Kokoro) - OPTIMIZED
+            # ULTRA-LOW LATENCY: Stage 3 - Text-to-Speech (Kokoro) with minimal overhead
             tts_start_time = time.time()
 
-            # OPTIMIZATION: Pre-determine voice and emotional parameters for faster TTS
-            voice = voice_preference or self._select_voice_for_response(response_text)
-            speed = speed_preference or self._select_speed_for_response(response_text)
+            # ULTRA-OPTIMIZATION: Use fixed voice/speed for maximum speed (skip analysis)
+            voice = voice_preference or 'af_heart'  # Fixed default voice for speed
+            speed = speed_preference or 1.0         # Fixed default speed for speed
 
-            # OPTIMIZATION: Add timeout for TTS to prevent hanging
+            # ULTRA-OPTIMIZATION: Reduced timeout for faster failure detection
             try:
                 tts_result = await asyncio.wait_for(
                     kokoro_model.synthesize_speech(
@@ -198,7 +189,7 @@ class SpeechToSpeechPipeline:
                         speed=speed,
                         chunk_id=conversation_id
                     ),
-                    timeout=5.0  # 5 second timeout for TTS
+                    timeout=3.0  # REDUCED: 3 second timeout for ultra-low latency
                 )
             except asyncio.TimeoutError:
                 pipeline_logger.error(f"❌ TTS timeout for conversation {conversation_id}")

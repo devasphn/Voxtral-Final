@@ -362,26 +362,16 @@ async def home(request: Request):
             <button id="speechToSpeechBtn" class="stream-btn" onclick="startSpeechToSpeech()" disabled>🗣️ Speech-to-Speech</button>
         </div>
 
-        <!-- Mode Selection -->
+        <!-- ULTRA-LOW LATENCY: Simplified Speech-to-Speech Only Mode -->
         <div class="audio-controls" style="justify-content: center; margin-bottom: 20px;">
             <div style="text-align: center; padding: 15px; background: rgba(255, 255, 255, 0.1); border-radius: 10px;">
-                <strong>🤖 Conversation Mode</strong>
-                <div style="margin: 10px 0;">
-                    <label style="margin-right: 20px;">
-                        <input type="radio" name="mode" value="transcribe" checked onchange="updateMode()">
-                        📝 Text Only
-                    </label>
-                    <label>
-                        <input type="radio" name="mode" value="speech_to_speech" onchange="updateMode()">
-                        🗣️ Speech-to-Speech
-                    </label>
-                </div>
-                <p style="margin: 5px 0; opacity: 0.8; font-size: 0.9em;" id="modeDescription">AI assistant ready for text-based conversation</p>
+                <strong>🗣️ Speech-to-Speech Conversation</strong>
+                <p style="margin: 5px 0; opacity: 0.8; font-size: 0.9em;">Ultra-low latency AI assistant ready for real-time voice conversation</p>
             </div>
         </div>
 
-        <!-- Speech-to-Speech Controls -->
-        <div class="audio-controls" id="speechToSpeechControls" style="display: none; justify-content: center; margin-bottom: 20px;">
+        <!-- Speech-to-Speech Controls (Always Visible) -->
+        <div class="audio-controls" id="speechToSpeechControls" style="display: flex; justify-content: center; margin-bottom: 20px;">
             <div style="text-align: center; padding: 15px; background: rgba(255, 255, 255, 0.1); border-radius: 10px;">
                 <strong>🎤 Voice Settings</strong>
                 <div style="margin: 10px 0; display: flex; gap: 15px; justify-content: center; flex-wrap: wrap;">
@@ -534,8 +524,8 @@ async def home(request: Request):
         let isPlayingAudio = false;
         let currentAudio = null;
         
-        // Speech-to-Speech specific variables
-        let currentMode = 'transcribe';
+        // ULTRA-LOW LATENCY: Speech-to-Speech only variables
+        let currentMode = 'speech_to_speech';  // FIXED: Default to speech-to-speech mode
         let selectedVoice = 'af_heart';
         let selectedSpeed = 1.0;
         let currentConversationId = null;
@@ -658,24 +648,17 @@ async def home(request: Request):
 
         // Speech-to-Speech Functions
         function updateMode() {
-            const mode = document.querySelector('input[name="mode"]:checked').value;
-            currentMode = mode;
+            // ULTRA-LOW LATENCY: Fixed to speech-to-speech mode only
+            currentMode = 'speech_to_speech';
 
-            const description = document.getElementById('modeDescription');
             const speechControls = document.getElementById('speechToSpeechControls');
             const speechBtn = document.getElementById('speechToSpeechBtn');
 
-            if (mode === 'speech_to_speech') {
-                description.textContent = 'AI assistant ready for speech-to-speech conversation with voice responses';
-                speechControls.style.display = 'flex';
-                speechBtn.style.display = 'inline-block';
-            } else {
-                description.textContent = 'AI assistant ready for text-based conversation';
-                speechControls.style.display = 'none';
-                speechBtn.style.display = 'none';
-            }
+            // Always show speech-to-speech controls
+            speechControls.style.display = 'flex';
+            speechBtn.style.display = 'inline-block';
 
-            log(`Mode updated to: ${mode}`);
+            log('Mode: Ultra-low latency speech-to-speech conversation');
         }
 
         function updateVoiceSettings() {

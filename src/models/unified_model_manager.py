@@ -42,11 +42,15 @@ class UnifiedModelManager:
         self.kokoro_initialized = False
         self.memory_manager_initialized = False
 
-        # Performance tracking
+        # ULTRA-LOW LATENCY: Minimal performance tracking to reduce overhead
         self.initialization_times = {}
         self.memory_usage = {}
 
-        unified_logger.info("UnifiedModelManager created")
+        # ULTRA-LOW LATENCY: Optimization flags
+        self.skip_detailed_logging = True  # Reduce logging overhead
+        self.fast_initialization = True   # Skip non-essential initialization steps
+
+        unified_logger.info("UnifiedModelManager created (ultra-low latency mode)")
     
     async def initialize(self) -> bool:
         """
@@ -65,21 +69,23 @@ class UnifiedModelManager:
                 # Step 1: Initialize GPU Memory Manager
                 await self._initialize_memory_manager()
                 
-                # Step 2: Initialize models in optimal order (Voxtral first for memory layout)
+                # ULTRA-LOW LATENCY: Step 2 - Initialize models in optimal order
                 await self._initialize_voxtral_model()
                 await self._initialize_kokoro_model()
 
-                # Step 3: Verify initialization and optimize memory
-                await self._post_initialization_optimization()
-                
+                # ULTRA-LOW LATENCY: Step 3 - Minimal post-initialization (skip heavy optimizations)
+                if not self.fast_initialization:
+                    await self._post_initialization_optimization()
+
                 total_time = time.time() - total_start_time
                 self.initialization_times["total"] = total_time
-                
+
                 self.is_initialized = True
-                unified_logger.info(f"🎉 Unified model initialization completed in {total_time:.2f}s")
-                
-                # Log final memory statistics
-                await self._log_memory_statistics()
+                unified_logger.info(f"🎉 ULTRA-LOW LATENCY model initialization completed in {total_time:.2f}s")
+
+                # ULTRA-LOW LATENCY: Skip detailed memory logging unless needed
+                if not self.skip_detailed_logging:
+                    await self._log_memory_statistics()
                 
                 return True
                 
