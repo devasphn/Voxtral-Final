@@ -8,6 +8,7 @@ import os
 import sys
 import traceback
 import time
+import soundfile as sf  # ADDED: Import soundfile for audio file operations
 from typing import Optional
 
 def test_environment():
@@ -199,29 +200,49 @@ def test_model_loading():
         return None
 
 def test_model_inference(model, processor):
-    """Test basic model inference"""
+    """Test basic model inference using correct VoxtralProcessor API"""
     print("🔍 TESTING MODEL INFERENCE")
     print("=" * 50)
-    
+
     try:
         import torch
         import numpy as np
-        
+        import tempfile
+        import soundfile as sf
+
         # Create dummy audio input
         sample_rate = 16000
         duration = 1.0  # 1 second
         audio_data = np.random.randn(int(sample_rate * duration)).astype(np.float32)
-        
-        print("🔄 Testing model inference...")
+
+        print("🔄 Testing model inference with correct VoxtralProcessor API...")
         start_time = time.time()
-        
-        # Process audio
-        inputs = processor(audio=audio_data, sampling_rate=sample_rate, return_tensors="pt")
-        
+
+        # FIXED: Use correct VoxtralProcessor API with conversation format
+        # Save audio to temporary file (required for VoxtralProcessor)
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_file:
+            sf.write(tmp_file.name, audio_data, sample_rate)
+            audio_path = tmp_file.name
+
+        # Test both audio+text and audio-only modes
+        print("   Testing audio+text mode...")
+        conversation_with_text = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "audio", "path": audio_path},
+                    {"type": "text", "text": "What can you tell me about this audio?"}
+                ]
+            }
+        ]
+
+        # Process using apply_chat_template (correct API)
+        inputs = processor.apply_chat_template(conversation_with_text, return_tensors="pt")
+
         # Move to same device as model
         if hasattr(model, 'device'):
-            inputs = {k: v.to(model.device) if hasattr(v, 'to') else v for k, v in inputs.items()}
-        
+            inputs = inputs.to(model.device)
+
         # Generate response
         with torch.no_grad():
             outputs = model.generate(
@@ -231,13 +252,65 @@ def test_model_inference(model, processor):
                 temperature=0.1,
                 use_cache=True
             )
-        
+
+        # Decode response
+        decoded_outputs = processor.batch_decode(
+            outputs[:, inputs.input_ids.shape[1]:],
+            skip_special_tokens=True
+        )
+
+        print(f"   ✅ Audio+text mode successful")
+        print(f"   Generated response: {decoded_outputs[0][:50]}...")
+
+        # Test audio-only mode (for speech-to-speech)
+        print("   Testing audio-only mode (speech-to-speech)...")
+        conversation_audio_only = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "audio", "path": audio_path}
+                ]
+            }
+        ]
+
+        # Process audio-only
+        inputs = processor.apply_chat_template(conversation_audio_only, return_tensors="pt")
+
+        # Move to same device as model
+        if hasattr(model, 'device'):
+            inputs = inputs.to(model.device)
+
+        # Generate response for audio-only
+        with torch.no_grad():
+            outputs = model.generate(
+                **inputs,
+                max_new_tokens=10,
+                do_sample=True,
+                temperature=0.1,
+                use_cache=True
+            )
+
+        # Decode response
+        decoded_outputs = processor.batch_decode(
+            outputs[:, inputs.input_ids.shape[1]:],
+            skip_special_tokens=True
+        )
+
         inference_time = time.time() - start_time
+        print(f"   ✅ Audio-only mode successful")
+        print(f"   Generated response: {decoded_outputs[0][:50]}...")
+
         print(f"✅ Model inference successful in {inference_time:.3f}s")
+        print(f"   Both audio+text and audio-only modes working")
+        print(f"   Input shape: {inputs.input_ids.shape}")
         print(f"   Output shape: {outputs.shape}")
-        
+
+        # Clean up temporary file
+        import os
+        os.unlink(audio_path)
+
         return True
-        
+
     except Exception as e:
         print(f"❌ Model inference failed: {e}")
         print("\nFull traceback:")

@@ -20,14 +20,8 @@ import logging
 from threading import Lock
 import base64
 
-# Import mistral_common with fallback
-try:
-    from mistral_common.audio import Audio
-    from mistral_common.protocol.instruct.messages import AudioChunk, TextChunk, UserMessage
-    MISTRAL_COMMON_AVAILABLE = True
-except ImportError:
-    # Fallback implementations
-    Audio = None
+# NOTE: mistral_common imports removed - using standard Hugging Face VoxtralProcessor API
+# The official VoxtralProcessor uses standard conversation format, not mistral_common classes
     AudioChunk = None
     TextChunk = None
     UserMessage = None
@@ -470,22 +464,36 @@ class VoxtralModel:
                         sf.write(tmp_file.name, audio_np, sample_rate)
                         realtime_logger.debug(f"💾 Written chunk {chunk_id} to temporary file: {tmp_file.name}")
                         
-                        # Load using mistral_common Audio with updated API
-                        audio = Audio.from_file(tmp_file.name)
-                        audio_chunk = AudioChunk.from_audio(audio)
-                        
-                        # OPTIMIZED: Single unified conversational prompt for Smart Conversation Mode
-                        conversation_prompt = "You are a helpful AI assistant in a natural voice conversation. Listen carefully to what the person is saying and respond naturally, as if you're having a friendly chat. Keep your responses conversational, concise (1-2 sentences), and engaging. Respond directly to what they said without repeating their words back to them."
-                        
-                        # Create message format using updated API
-                        text_chunk = TextChunk(text=conversation_prompt)
-                        user_message = UserMessage(content=[audio_chunk, text_chunk])
-                        
-                        # Convert to chat format for processor
-                        messages = [user_message.model_dump()]
-                        
-                        # Process inputs with updated API
-                        inputs = self.processor.apply_chat_template(messages, return_tensors="pt")
+                        # FIXED: Use standard Hugging Face VoxtralProcessor API
+                        # Choose processing mode based on requirements
+                        if mode == "speech_to_speech" or not prompt:
+                            # Audio-only mode for pure speech-to-speech processing
+                            conversation = [
+                                {
+                                    "role": "user",
+                                    "content": [
+                                        {"type": "audio", "path": tmp_file.name}
+                                    ]
+                                }
+                            ]
+                            realtime_logger.debug(f"🎙️ Using audio-only mode for speech-to-speech processing")
+                        else:
+                            # Audio + text mode for conversational AI
+                            conversation_prompt = prompt or "You are a helpful AI assistant in a natural voice conversation. Listen carefully to what the person is saying and respond naturally, as if you're having a friendly chat. Keep your responses conversational, concise (1-2 sentences), and engaging. Respond directly to what they said without repeating their words back to them."
+
+                            conversation = [
+                                {
+                                    "role": "user",
+                                    "content": [
+                                        {"type": "audio", "path": tmp_file.name},
+                                        {"type": "text", "text": conversation_prompt}
+                                    ]
+                                }
+                            ]
+                            realtime_logger.debug(f"🎙️ Using audio+text mode for conversational AI")
+
+                        # Process inputs with correct VoxtralProcessor API
+                        inputs = self.processor.apply_chat_template(conversation, return_tensors="pt")
                         
                         # Move to device
                         if hasattr(inputs, 'to'):
