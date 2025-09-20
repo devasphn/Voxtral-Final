@@ -99,6 +99,11 @@ class StreamingCoordinator:
         
         try:
             async for token_data in voxtral_stream:
+                # Enhanced error handling for token data
+                if not isinstance(token_data, dict):
+                    streaming_logger.warning(f"⚠️ Invalid token data type: {type(token_data)}")
+                    continue
+
                 # Check for interruption
                 if self.interruption_detected:
                     streaming_logger.info(f"🛑 Stream interrupted for session {self.current_session_id}")
@@ -109,26 +114,47 @@ class StreamingCoordinator:
                         chunk_id=self.current_session_id
                     )
                     break
-                
+
                 if token_data.get('type') == 'words':
                     words_text = token_data.get('text', '').strip()
-                    if words_text:
-                        # Add to word buffer
-                        self.word_buffer.append({
-                            'text': words_text,
-                            'timestamp': time.time(),
-                            'tokens': token_data.get('tokens', [])
-                        })
-                        
-                        # Check if we should trigger TTS
-                        if len(self.word_buffer) >= self.config['words_trigger_threshold']:
+                    # Enhanced text validation
+                    if words_text and isinstance(words_text, str):
+                        # Add to word buffer with enhanced validation
+                        try:
+                            self.word_buffer.append({
+                                'text': words_text,
+                                'timestamp': time.time(),
+                                'tokens': token_data.get('tokens', []),
+                                'word_count': token_data.get('word_count', 0)
+                            })
+                        except Exception as buffer_error:
+                            streaming_logger.error(f"❌ Word buffer error: {buffer_error}")
+                            continue
+
+                        # Dynamic TTS triggering based on content and timing
+                        trigger_threshold = self.config['words_trigger_threshold']
+                        buffer_size = len(self.word_buffer)
+
+                        # Trigger TTS if we have enough words OR if enough time has passed
+                        time_since_last = time.time() - (self.word_buffer[-2]['timestamp'] if len(self.word_buffer) > 1 else session_start_time)
+                        should_trigger = (buffer_size >= trigger_threshold or
+                                        (buffer_size >= 1 and time_since_last > 0.5))  # 500ms timeout
+
+                        if should_trigger:
                             # Collect words for TTS
                             words_for_tts = []
-                            while len(words_for_tts) < self.config['words_trigger_threshold'] and self.word_buffer:
-                                words_for_tts.append(self.word_buffer.popleft())
-                            
-                            # Combine words into text
-                            combined_text = ' '.join(word['text'] for word in words_for_tts)
+                            words_to_collect = min(trigger_threshold, buffer_size)
+
+                            for _ in range(words_to_collect):
+                                if self.word_buffer:
+                                    words_for_tts.append(self.word_buffer.popleft())
+
+                            # Combine words into text with validation
+                            try:
+                                combined_text = ' '.join(word['text'] for word in words_for_tts if isinstance(word.get('text'), str))
+                            except Exception as combine_error:
+                                streaming_logger.error(f"❌ Text combination error: {combine_error}")
+                                continue
                             
                             # Track first word latency
                             if not first_word_sent:
@@ -222,6 +248,20 @@ class StreamingCoordinator:
         
         except Exception as e:
             streaming_logger.error(f"❌ Error processing Voxtral stream: {e}")
+            streaming_logger.error(f"❌ Error details: {type(e).__name__}: {str(e)}")
+
+            # Enhanced error reporting
+            yield StreamingChunk(
+                type='error',
+                content={
+                    'error': str(e),
+                    'error_type': type(e).__name__,
+                    'session_id': self.current_session_id,
+                    'words_processed': words_sent_count
+                },
+                timestamp=time.time(),
+                chunk_id=self.current_session_id
+            )
             yield StreamingChunk(
                 type='error',
                 content={'error': str(e)},

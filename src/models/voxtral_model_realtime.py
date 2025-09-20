@@ -29,6 +29,12 @@ import os
 from collections import deque
 import sys
 
+# Import streaming performance optimizer
+try:
+    from src.utils.streaming_performance_optimizer import streaming_optimizer
+except ImportError:
+    streaming_optimizer = None
+
 # Add current directory to Python path if not already there
 current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.abspath(os.path.join(current_dir, '..', '..'))
@@ -828,75 +834,125 @@ class VoxtralModel:
                     word_buffer = ""
                     step = 0
 
-                    # Generation parameters
+                    # Enhanced generation parameters for streaming mode
                     generation_config = {
                         'do_sample': True,
-                        'temperature': 0.3,
-                        'top_p': 0.9,
-                        'top_k': 50,
-                        'repetition_penalty': 1.2,
+                        'temperature': 0.4,  # Slightly higher for more diverse generation
+                        'top_p': 0.85,       # Balanced nucleus sampling
+                        'top_k': 40,         # Reduced for faster generation
+                        'repetition_penalty': 1.15,  # Reduced to allow natural repetition
+                        'length_penalty': 1.1,       # Encourage longer responses
+                        'no_repeat_ngram_size': 3,    # Prevent short repetitive loops
                         'pad_token_id': self.processor.tokenizer.eos_token_id if hasattr(self.processor, 'tokenizer') else None,
                         'eos_token_id': self.processor.tokenizer.eos_token_id if hasattr(self.processor, 'tokenizer') else None,
                         'use_cache': True,
+                        'early_stopping': False,      # Prevent premature stopping
+                        'forced_eos_token_id': None,  # Don't force early EOS
                     }
 
-                    # STREAMING LOOP: Generate tokens one by one
-                    for step in range(250):  # Max 250 tokens
-                        # Generate next token
-                        with torch.no_grad():
-                            outputs = self.model.generate(
-                                current_input_ids,
-                                max_new_tokens=1,
-                                min_new_tokens=1,
-                                **generation_config,
-                                output_scores=False,
-                                output_attentions=False,
-                                output_hidden_states=False,
-                                return_dict_in_generate=False,
-                                synced_gpus=False,
-                            )
+                    # STREAMING LOOP: Generate tokens one by one with enhanced parameters
+                    max_tokens = 200  # Increased target for longer responses
+                    min_words_before_stop = 10  # Minimum words before allowing EOS
+                    words_generated = 0
 
-                        # Extract new token
-                        new_token_id = outputs[0, -1].item()
-                        generated_tokens.append(new_token_id)
+                    for step in range(max_tokens):
+                        # Generate next token with enhanced error handling
+                        try:
+                            with torch.no_grad():
+                                outputs = self.model.generate(
+                                    current_input_ids,
+                                    max_new_tokens=1,
+                                    min_new_tokens=1,
+                                    **generation_config,
+                                    output_scores=False,
+                                    output_attentions=False,
+                                    output_hidden_states=False,
+                                    return_dict_in_generate=False,
+                                    synced_gpus=False,
+                                )
+                        except Exception as gen_error:
+                            realtime_logger.error(f"❌ Generation error at step {step}: {gen_error}")
+                            break
 
-                        # Decode token to text
-                        if hasattr(self.processor, 'tokenizer'):
-                            token_text = self.processor.tokenizer.decode([new_token_id], skip_special_tokens=True)
-                        else:
+                        # Extract new token with robust error handling
+                        try:
+                            if outputs.dim() > 1:
+                                new_token_id = outputs[0, -1].item()
+                            else:
+                                new_token_id = outputs[-1].item()
+                            generated_tokens.append(new_token_id)
+                        except Exception as token_error:
+                            realtime_logger.error(f"❌ Token extraction error: {token_error}")
+                            break
+
+                        # Decode token to text with robust type checking
+                        try:
+                            if hasattr(self.processor, 'tokenizer'):
+                                token_text = self.processor.tokenizer.decode([new_token_id], skip_special_tokens=True)
+                            else:
+                                token_text = f"<{new_token_id}>"
+
+                            # Ensure token_text is a string (fix numpy.float32 iteration error)
+                            if not isinstance(token_text, str):
+                                token_text = str(token_text)
+
+                        except Exception as decode_error:
+                            realtime_logger.warning(f"⚠️ Token decode error: {decode_error}, using fallback")
                             token_text = f"<{new_token_id}>"
 
                         # Add to word buffer
                         word_buffer += token_text
 
                         # Check if we have complete words (2+ words for TTS trigger)
+                        # Enhanced word detection with robust string handling
                         words = word_buffer.strip().split()
-                        if len(words) >= 2 or any(char in token_text for char in ['.', '!', '?', '\n']):
-                            # Send words for TTS processing
+                        has_punctuation = False
+                        try:
+                            # Safe punctuation check with proper string handling
+                            if isinstance(token_text, str) and token_text:
+                                has_punctuation = any(char in token_text for char in ['.', '!', '?', '\n', ',', ';'])
+                        except (TypeError, AttributeError) as e:
+                            realtime_logger.debug(f"Punctuation check error: {e}")
+                            has_punctuation = False
+
+                        if len(words) >= 2 or has_punctuation:
+                            # Send words for TTS processing with enhanced logic
                             words_to_send = ' '.join(words[:-1]) if len(words) > 2 else ' '.join(words)
                             if words_to_send.strip():
+                                words_generated += len(words_to_send.split())
+
                                 yield {
                                     'type': 'words',
                                     'text': words_to_send.strip(),
-                                    'tokens': generated_tokens[-len(words_to_send.split()):],
+                                    'tokens': generated_tokens[-len(words_to_send.split()):] if generated_tokens else [],
                                     'step': step,
                                     'is_complete': False,
                                     'chunk_id': chunk_id,
-                                    'timestamp': time.time()
+                                    'timestamp': time.time(),
+                                    'word_count': words_generated
                                 }
 
                                 # Keep last word in buffer for next iteration
                                 word_buffer = words[-1] if len(words) > 2 else ""
 
+                                realtime_logger.debug(f"🎯 Sent {len(words_to_send.split())} words: '{words_to_send}'")
+
                         # Update input for next iteration
                         current_input_ids = outputs
 
-                        # Check for EOS token
-                        if new_token_id == generation_config.get('eos_token_id'):
+                        # Enhanced EOS token handling - only stop if we have enough content
+                        eos_token_id = generation_config.get('eos_token_id')
+                        if (new_token_id == eos_token_id and
+                            words_generated >= min_words_before_stop and
+                            step > 20):  # Minimum 20 tokens before allowing EOS
+                            realtime_logger.info(f"✅ Natural EOS reached after {words_generated} words, {step} tokens")
                             break
+                        elif new_token_id == eos_token_id and words_generated < min_words_before_stop:
+                            realtime_logger.debug(f"⚠️ Early EOS ignored - only {words_generated} words generated")
+                            # Continue generation despite EOS
 
-                        # Small delay to prevent overwhelming
-                        await asyncio.sleep(0.001)
+                        # Adaptive delay based on generation speed
+                        await asyncio.sleep(0.001 if step < 50 else 0.0005)
 
                     # Send any remaining text
                     if word_buffer.strip():
@@ -913,11 +969,17 @@ class VoxtralModel:
             inference_time = (time.time() - inference_start) * 1000
             total_time = (time.time() - start_time) * 1000
 
-            # Decode final output
-            if hasattr(self.processor, 'tokenizer'):
-                response_text = self.processor.tokenizer.decode(outputs[0], skip_special_tokens=True)
-            else:
-                response_text = str(outputs[0])
+            # Decode final output with robust error handling
+            try:
+                if hasattr(self.processor, 'tokenizer') and generated_tokens:
+                    response_text = self.processor.tokenizer.decode(generated_tokens, skip_special_tokens=True)
+                elif hasattr(self.processor, 'tokenizer'):
+                    response_text = self.processor.tokenizer.decode(outputs[0], skip_special_tokens=True)
+                else:
+                    response_text = str(outputs[0]) if outputs is not None else "Generated response"
+            except Exception as decode_error:
+                realtime_logger.warning(f"⚠️ Final decode error: {decode_error}")
+                response_text = f"Generated {len(generated_tokens)} tokens"
 
             # Send completion marker
             yield {

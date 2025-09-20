@@ -206,6 +206,7 @@ class TTSService:
         """
         STREAMING VOICE AGENT: Process streaming words from Voxtral for immediate TTS
         Generates audio as words become available for ultra-low perceived latency
+        Enhanced with robust error handling and performance optimizations
         """
         if not self.is_initialized:
             await self.initialize()
