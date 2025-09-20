@@ -397,6 +397,13 @@ async def home(request: Request):
                             <option value="1.2">Fast</option>
                         </select>
                     </div>
+                    <div>
+                        <label>Mode:</label>
+                        <select id="streamingModeSelect" onchange="updateStreamingMode()">
+                            <option value="streaming" selected>🚀 Streaming (Ultra-Low Latency)</option>
+                            <option value="conversation">💬 Regular (Standard)</option>
+                        </select>
+                    </div>
                 </div>
             </div>
         </div>
@@ -518,6 +525,9 @@ async def home(request: Request):
         let silenceStartTime = null;
         let pendingResponse = false;
         let lastResponseText = '';  // For deduplication
+
+        // Streaming mode settings
+        let streamingModeEnabled = true;  // Default to streaming mode
 
         // Audio playback queue management
         let audioQueue = [];
@@ -678,6 +688,22 @@ async def home(request: Request):
                 log('Voice settings: Automatic emotional voice selection enabled');
             } else {
                 log(`Voice settings updated: ${selectedVoice} (${selectedOption.text}), speed: ${selectedSpeed}`);
+            }
+        }
+
+        function updateStreamingMode() {
+            const streamingSelect = document.getElementById('streamingModeSelect');
+            const selectedMode = streamingSelect.value;
+            streamingModeEnabled = (selectedMode === 'streaming');
+
+            const selectedOption = streamingSelect.options[streamingSelect.selectedIndex];
+            log(`Streaming mode updated: ${selectedOption.text} (${streamingModeEnabled ? 'ENABLED' : 'DISABLED'})`);
+
+            // Update status to reflect mode change
+            if (streamingModeEnabled) {
+                updateStatus('🚀 Ultra-low latency streaming mode enabled', 'success');
+            } else {
+                updateStatus('💬 Regular conversation mode enabled', 'info');
             }
         }
 
@@ -988,6 +1014,30 @@ async def home(request: Request):
                         if (data.emotion_analysis) {
                             log(`Emotional context: ${data.emotion_analysis.emotional_reasoning}`);
                         }
+                    }
+                    break;
+
+                case 'streaming_words':
+                    // Handle streaming word-by-word text
+                    if (streamingModeEnabled) {
+                        handleStreamingWords(data);
+                        log(`🚀 Streaming words: "${data.text}" (sequence: ${data.sequence})`);
+                    }
+                    break;
+
+                case 'streaming_audio':
+                    // Handle streaming audio chunks
+                    if (streamingModeEnabled) {
+                        handleStreamingAudio(data);
+                        log(`🎵 Streaming audio chunk ${data.chunk_index} (final: ${data.is_final})`);
+                    }
+                    break;
+
+                case 'interruption':
+                    // Handle user interruption detection
+                    if (streamingModeEnabled) {
+                        handleInterruption(data);
+                        log(`🛑 User interruption detected: ${data.message}`);
                     }
                     break;
 
@@ -1458,7 +1508,8 @@ async def home(request: Request):
                 const message = {
                     type: 'audio_chunk',
                     audio_data: base64Audio,
-                    mode: speechToSpeechActive ? 'speech_to_speech' : 'conversation',
+                    mode: speechToSpeechActive ? 'speech_to_speech' : (streamingModeEnabled ? 'streaming' : 'conversation'),
+                    streaming: streamingModeEnabled,  // Use user-selected streaming mode
                     prompt: '',  // No custom prompts - using hardcoded optimal prompt
                     chunk_id: chunkCounter++,
                     timestamp: Date.now()
@@ -1484,15 +1535,80 @@ async def home(request: Request):
             const bytes = new Uint8Array(buffer);
             let binary = '';
             const chunkSize = 8192;
-            
+
             for (let i = 0; i < bytes.length; i += chunkSize) {
                 const chunk = bytes.slice(i, i + chunkSize);
                 binary += String.fromCharCode.apply(null, chunk);
             }
-            
+
             return btoa(binary);
         }
-        
+
+        // Streaming mode handlers
+        function handleStreamingWords(data) {
+            // Display words as they arrive in real-time
+            const conversationDiv = document.getElementById('conversation');
+            let currentResponseDiv = document.getElementById('current-streaming-response');
+
+            if (!currentResponseDiv) {
+                // Create new response container for streaming
+                currentResponseDiv = document.createElement('div');
+                currentResponseDiv.id = 'current-streaming-response';
+                currentResponseDiv.className = 'message ai-message streaming';
+                currentResponseDiv.innerHTML = '<strong>AI:</strong> <span class="streaming-text"></span>';
+                conversationDiv.appendChild(currentResponseDiv);
+            }
+
+            const textSpan = currentResponseDiv.querySelector('.streaming-text');
+            textSpan.textContent = data.full_text_so_far;
+
+            // Auto-scroll to bottom
+            conversationDiv.scrollTop = conversationDiv.scrollHeight;
+        }
+
+        function handleStreamingAudio(data) {
+            // Handle streaming audio chunks for immediate playback
+            try {
+                const audioBytes = Uint8Array.from(atob(data.audio_data), c => c.charCodeAt(0));
+                const audioBlob = new Blob([audioBytes], { type: 'audio/wav' });
+                const audioUrl = URL.createObjectURL(audioBlob);
+
+                // Create and play audio immediately
+                const audio = new Audio(audioUrl);
+                audio.play().catch(e => {
+                    log(`Error playing streaming audio: ${e.message}`);
+                });
+
+                log(`🎵 Playing streaming audio chunk ${data.chunk_index}`);
+
+                // Clean up URL after playback
+                audio.addEventListener('ended', () => {
+                    URL.revokeObjectURL(audioUrl);
+                });
+
+            } catch (error) {
+                log(`Error handling streaming audio: ${error.message}`);
+            }
+        }
+
+        function handleInterruption(data) {
+            // Handle user interruption - stop current audio and clear streaming
+            if (currentAudio) {
+                currentAudio.pause();
+                currentAudio = null;
+            }
+
+            // Clear current streaming response
+            const currentResponseDiv = document.getElementById('current-streaming-response');
+            if (currentResponseDiv) {
+                currentResponseDiv.remove();
+            }
+
+            // Show interruption message
+            updateStatus('🛑 Interruption detected - ready for new input', 'info');
+            log('🛑 User interruption handled - cleared streaming state');
+        }
+
         // Initialize on page load
         window.addEventListener('load', () => {
             detectEnvironment();
@@ -1513,6 +1629,7 @@ async def home(request: Request):
         // Initialize the interface
         updateMode();
         updateVoiceSettings();
+        updateStreamingMode();
     </script>
 </body>
 </html>
