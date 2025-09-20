@@ -11,7 +11,7 @@ model:
   name: "mistralai/Voxtral-Mini-3B-2507"
   cache_dir: "./model_cache"
   device: "cuda"
-  torch_dtype: "bfloat16"
+  torch_dtype: "float16"  # OPTIMIZED: Use float16 for maximum GPU performance (faster than bfloat16)
   max_memory_per_gpu: "6GB"
   
 audio:

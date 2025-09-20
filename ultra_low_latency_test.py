@@ -10,6 +10,7 @@ import logging
 import numpy as np
 import sys
 import os
+import torch  # ADDED: Import torch for dtype comparisons
 from typing import Dict, List, Any
 
 # Add project root to path
@@ -148,8 +149,10 @@ class UltraLowLatencyTester:
                 'improvement_factor': 688 / avg_processing_time,  # Based on original 688ms baseline
                 'optimizations_detected': {
                     'torch_compile': getattr(voxtral_model, 'use_torch_compile', False),
-                    'float16_dtype': voxtral_model.torch_dtype == 'torch.float16',
-                    'kv_cache_optimization': getattr(voxtral_model, 'use_kv_cache_optimization', False)
+                    'float16_dtype': voxtral_model.torch_dtype == torch.float16,  # FIXED: Compare torch.dtype objects correctly
+                    'kv_cache_optimization': getattr(voxtral_model, 'use_kv_cache_optimization', False),
+                    'flash_attention_available': getattr(voxtral_model, 'flash_attention_available', False),
+                    'memory_efficient_attention': getattr(voxtral_model, 'use_memory_efficient_attention', False)
                 }
             }
             
