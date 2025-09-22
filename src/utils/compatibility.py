@@ -146,7 +146,7 @@ def get_voxtral_classes():
         compat_logger.warning("Voxtral not available - using fallback")
         return FallbackVoxtralModel, None
 
-# Orpheus TTS support removed - using Kokoro TTS only
+# TTS support: Using Kokoro TTS exclusively
 
 def get_config():
     """Get configuration with fallback"""
@@ -234,8 +234,8 @@ def test_compatibility():
     fallback_voxtral = FallbackVoxtralModel()
     print(f"Fallback Voxtral: {fallback_voxtral.get_model_info()}")
     
-    # Orpheus fallback removed - using Kokoro TTS only
-    print("Orpheus TTS support removed - using Kokoro TTS exclusively")
+    # TTS: Using Kokoro TTS exclusively
+    print("TTS Engine: Kokoro TTS (high-quality multilingual synthesis)")
     
     fallback_config = FallbackConfig()
     print(f"Fallback Config: server.port = {fallback_config.server.port}")

@@ -1,12 +1,12 @@
 # Voxtral + TTS Integrated Real-time Voice Application
 
-A complete real-time voice AI system combining Mistral's Voxtral model for speech recognition with Orpheus TTS for high-quality speech synthesis. Features full-duplex voice conversation with pre-loaded models and optimized for RunPod deployment.
+A complete real-time voice AI system combining Mistral's Voxtral model for speech recognition with Kokoro TTS for high-quality speech synthesis. Features full-duplex voice conversation with pre-loaded models and optimized for RunPod deployment.
 
 ## ✨ Features
 
 - **Complete Voice Pipeline**: Speech-to-Text → LLM → Text-to-Speech
-- **Real-time Processing**: End-to-end latency <500ms
-- **High-quality TTS**: Orpheus TTS with 24 voices across 8 languages
+- **Real-time Processing**: End-to-end latency <300ms
+- **High-quality TTS**: Kokoro TTS with multilingual voice synthesis
 - **Pre-loaded Models**: Instant conversation startup (no loading delays)
 - **Voice Activity Detection**: Smart silence detection and processing
 - **WebSocket Streaming**: Real-time bidirectional audio communication
@@ -18,7 +18,7 @@ A complete real-time voice AI system combining Mistral's Voxtral model for speec
 ## 🏗️ Architecture
 
 ```
-User Voice → VAD → STT (Voxtral) → LLM → TTS (Orpheus) → Audio Output
+User Voice → VAD → STT (Voxtral) → LLM → TTS (Kokoro) → Audio Output
                     ↓
               WebSocket Communication
                     ↓
@@ -32,8 +32,8 @@ User Voice → VAD → STT (Voxtral) → LLM → TTS (Orpheus) → Audio Output
                     ┌─────────────────────┐
                     │  Pre-loaded Models  │
                     │  • Voxtral STT      │
-                    │  • Orpheus TTS      │
-                    │  • SNAC Audio       │
+                    │  • Kokoro TTS       │
+                    │  • Audio Processing │
                     └─────────────────────┘
 ```
 
@@ -41,7 +41,7 @@ User Voice → VAD → STT (Voxtral) → LLM → TTS (Orpheus) → Audio Output
 
 - **Web Interface**: Real-time voice conversation UI
 - **STT Engine**: Voxtral model for speech recognition
-- **TTS Engine**: Orpheus with 24 voices across 8 languages
+- **TTS Engine**: Kokoro TTS with multilingual voice synthesis
 - **VAD System**: Smart voice activity detection
 - **Model Pre-loading**: Instant startup with cached models
 

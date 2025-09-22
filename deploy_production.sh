@@ -353,7 +353,7 @@ perform_cleanup() {
         cleanup_log "Fixing merge conflicts in config.yaml"
         cp "$SCRIPT_DIR/config.yaml" "$BACKUP_DIR/config.yaml.backup"
 
-        # Remove merge conflict markers and keep the HEAD version (Orpheus configuration)
+        # Remove merge conflict markers and keep the HEAD version (Kokoro configuration)
         sed '/<<<<<<< HEAD/,/=======/d; />>>>>>> .*/d' "$SCRIPT_DIR/config.yaml" > "$SCRIPT_DIR/config.yaml.tmp"
         mv "$SCRIPT_DIR/config.yaml.tmp" "$SCRIPT_DIR/config.yaml"
         cleanup_log "Fixed merge conflicts in config.yaml"
@@ -490,9 +490,9 @@ install_dependencies() {
     log "Installing Mistral Common with audio support..."
     pip install "mistral-common[audio]>=1.8.1"
     
-    # Install Orpheus TTS
-    log "Installing Orpheus TTS..."
-    pip install orpheus-speech>=0.1.0
+    # Install Kokoro TTS dependencies
+    log "Installing Kokoro TTS dependencies..."
+    pip install phonemizer>=3.2.1
     
     # Install vLLM
     log "Installing vLLM..."
@@ -547,18 +547,19 @@ except Exception as e:
     exit(1)
 "
     
-    # Download Orpheus model
-    log "Downloading Orpheus model..."
+    # Download Kokoro model
+    log "Downloading Kokoro model..."
     python3 -c "
 import os
 os.environ['HF_TOKEN'] = '$HF_TOKEN'
 try:
-    from orpheus_tts import OrpheusModel
-    print('Downloading Orpheus model...')
-    model = OrpheusModel(model_name='canopylabs/orpheus-tts-0.1-finetune-prod')
-    print('✅ Orpheus model cached successfully')
+    from src.utils.kokoro_model_manager import KokoroModelManager
+    print('Downloading Kokoro model...')
+    manager = KokoroModelManager()
+    manager.download_model()
+    print('✅ Kokoro model cached successfully')
 except Exception as e:
-    print(f'⚠️ Orpheus model download failed: {e}')
+    print(f'⚠️ Kokoro model download failed: {e}')
     print('Model will be downloaded on first use')
 "
     
@@ -806,7 +807,7 @@ EOF
 
 # Main deployment function
 main() {
-    log "🚀 Starting ENHANCED PRODUCTION deployment of Voxtral + Orpheus TTS system"
+    log "🚀 Starting ENHANCED PRODUCTION deployment of Voxtral + Kokoro TTS system"
     log "📝 Deployment logs: $LOG_FILE"
 
     # Phase 1: System Setup
