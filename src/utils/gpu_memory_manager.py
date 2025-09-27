@@ -47,11 +47,20 @@ class GPUMemoryManager:
         self.voxtral_memory_gb = 0.0
         self.kokoro_memory_gb = 0.0
 
-        # Memory requirements (in GB)
+        # OPTIMIZED: Memory requirements for RTX A4500 (20GB VRAM)
         self.min_vram_gb = 8.0  # RTX 3070/4060 Ti minimum
         self.recommended_vram_gb = 16.0  # RTX A4500 recommended
+        self.optimal_vram_gb = 20.0  # RTX A4500 optimal (full capacity)
         self.voxtral_base_memory_gb = 4.5  # Estimated Voxtral memory usage
         self.kokoro_base_memory_gb = 1.5  # Estimated Kokoro TTS memory usage (lighter than Orpheus)
+
+        # RTX A4500 specific optimizations
+        self.rtx_a4500_optimizations = {
+            "memory_fraction": 0.90,  # Use 90% of 20GB = 18GB
+            "reserved_memory_gb": 2.0,  # Reserve 2GB for system/other processes
+            "enable_memory_pool": True,  # Enable CUDA memory pool for faster allocation
+            "enable_flash_attention": True,  # RTX A4500 supports FlashAttention2
+        }
         
         gpu_logger.info(f"GPUMemoryManager initialized for device: {self.device}")
         
@@ -110,18 +119,61 @@ class GPUMemoryManager:
                         f"{required_memory_gb:.2f} GB required"
                     )
             
-            # Log recommendations
-            if total_memory_gb >= self.recommended_vram_gb:
+            # ENHANCED: Log recommendations with RTX A4500 specific optimizations
+            if total_memory_gb >= self.optimal_vram_gb:
+                gpu_logger.info("[OK] RTX A4500 detected - applying optimal 20GB VRAM optimizations")
+                self._apply_rtx_a4500_optimizations()
+            elif total_memory_gb >= self.recommended_vram_gb:
                 gpu_logger.info("[OK] Excellent VRAM capacity - optimal performance expected")
             elif total_memory_gb >= self.min_vram_gb:
                 gpu_logger.info("[OK] Sufficient VRAM - good performance expected")
-            
+
             return True
             
         except Exception as e:
             gpu_logger.error(f"[ERROR] VRAM validation failed: {e}")
             raise
-    
+
+    def _apply_rtx_a4500_optimizations(self):
+        """ADDED: Apply RTX A4500 specific optimizations for 20GB VRAM"""
+        try:
+            if self.device != "cuda":
+                return
+
+            gpu_logger.info("[SWIM] Applying RTX A4500 optimizations...")
+
+            # Set optimal memory fraction for 20GB VRAM
+            memory_fraction = self.rtx_a4500_optimizations["memory_fraction"]
+            try:
+                torch.cuda.set_per_process_memory_fraction(memory_fraction)
+                gpu_logger.info(f"[TARGET] Set GPU memory fraction to {int(memory_fraction*100)}%")
+            except Exception as e:
+                gpu_logger.warning(f"[WARN] Failed to set memory fraction: {e}")
+
+            # Enable CUDA memory allocator optimizations
+            try:
+                # Set environment variables for optimal CUDA memory allocation
+                import os
+                os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:512,roundup_power2_divisions:16'
+                gpu_logger.info("[IDEA] Using optimized CUDA memory allocator")
+            except Exception as e:
+                gpu_logger.warning(f"[WARN] CUDA allocator optimization failed: {e}")
+                gpu_logger.info("[IDEA] Using default CUDA memory allocator")
+
+            # Enable memory pool if available
+            if self.rtx_a4500_optimizations["enable_memory_pool"]:
+                try:
+                    if hasattr(torch.cuda, 'memory_pool'):
+                        torch.cuda.memory_pool.set_memory_fraction(memory_fraction)
+                        gpu_logger.info("[POOL] CUDA memory pool optimized for RTX A4500")
+                except Exception as e:
+                    gpu_logger.debug(f"Memory pool optimization not available: {e}")
+
+            gpu_logger.info("[OK] RTX A4500 optimizations applied successfully")
+
+        except Exception as e:
+            gpu_logger.warning(f"[WARN] RTX A4500 optimization failed: {e}")
+
     def create_shared_memory_pool(self) -> Optional[Any]:
         """
         Create a shared memory pool for efficient tensor allocation

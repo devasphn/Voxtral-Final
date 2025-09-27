@@ -169,11 +169,23 @@ class KokoroTTSModel:
             
             for i, (gs, ps, audio) in enumerate(generator):
                 if audio is not None and len(audio) > 0:
-                    audio_chunks.append(audio)
-                    total_samples += len(audio)
-                    # OPTIMIZED: Reduced logging for speed - only log every 5th chunk
-                    if i % 5 == 0:
-                        tts_logger.debug(f"   [EMOJI] Generated chunk {i}: {len(audio)} samples")
+                    # CRITICAL FIX: Convert PyTorch tensors to NumPy arrays
+                    try:
+                        if hasattr(audio, 'cpu'):
+                            # PyTorch tensor - convert to numpy
+                            audio_np = audio.cpu().numpy()
+                        else:
+                            # Already numpy array
+                            audio_np = audio
+
+                        audio_chunks.append(audio_np)
+                        total_samples += len(audio_np)
+                        # OPTIMIZED: Reduced logging for speed - only log every 5th chunk
+                        if i % 5 == 0:
+                            tts_logger.debug(f"   [EMOJI] Generated chunk {i}: {len(audio_np)} samples")
+                    except Exception as conversion_error:
+                        tts_logger.error(f"[ERROR] Audio chunk conversion error: {conversion_error}")
+                        continue
             
             # Concatenate all audio chunks
             if audio_chunks:
@@ -270,8 +282,35 @@ class KokoroTTSModel:
             chunk_count = 0
             for i, (gs, ps, audio) in enumerate(generator):
                 if audio is not None and len(audio) > 0:
-                    # Convert to bytes immediately and yield
-                    audio_bytes = (audio * 32767).astype(np.int16).tobytes()
+                    # ENHANCED FIX: Ultra-robust tensor to numpy conversion
+                    try:
+                        # Multi-stage conversion to handle all tensor types
+                        if isinstance(audio, torch.Tensor):
+                            # PyTorch tensor - use detach().cpu().numpy() for safety
+                            audio_np = audio.detach().cpu().numpy()
+                        elif hasattr(audio, 'cpu') and hasattr(audio, 'numpy'):
+                            # Other tensor types with cpu() and numpy() methods
+                            audio_np = audio.cpu().numpy()
+                        elif hasattr(audio, 'detach'):
+                            # Tensor that needs detaching
+                            audio_np = audio.detach().cpu().numpy()
+                        elif hasattr(audio, 'numpy'):
+                            # Has numpy() method
+                            audio_np = audio.numpy()
+                        else:
+                            # Already numpy array or convert to numpy
+                            audio_np = np.array(audio, dtype=np.float32)
+
+                        # CRITICAL SAFETY CHECK: Final validation
+                        if not isinstance(audio_np, np.ndarray):
+                            tts_logger.warning(f"[WARN] Audio type {type(audio_np)} after conversion, forcing numpy conversion")
+                            audio_np = np.array(audio_np, dtype=np.float32)
+
+                        # Convert to int16 bytes for audio output
+                        audio_bytes = (audio_np * 32767).astype(np.int16).tobytes()
+                    except Exception as conversion_error:
+                        tts_logger.error(f"[ERROR] Audio conversion error for chunk {chunk_id}: {conversion_error}")
+                        continue
                     chunk_count += 1
 
                     # Yield the audio chunk for immediate playback

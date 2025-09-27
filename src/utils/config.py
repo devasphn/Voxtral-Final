@@ -31,29 +31,33 @@ class ServerConfig(BaseModel):
 
 class ModelConfig(BaseModel):
     name: str = "mistralai/Voxtral-Mini-3B-2507"
-    cache_dir: str = "/workspace/model_cache"
+    cache_dir: str = "./model_cache"  # FIXED: Match config.yaml
     device: str = "cuda"
-    torch_dtype: str = "bfloat16"
+    torch_dtype: str = "float16"  # FIXED: Match config.yaml for optimal performance
     max_memory_per_gpu: str = "6GB"
+    # ADDED: CUDA memory optimization settings
+    require_auth_token: bool = True
+    use_safetensors: bool = True
+    enable_memory_optimization: bool = True
 
 class AudioConfig(BaseModel):
     sample_rate: int = 16000
-    chunk_size: int = 1024
+    chunk_size: int = 512  # FIXED: Match config.yaml for lower latency
     format: str = "int16"
     channels: int = 1
-    frame_duration_ms: int = 30
+    frame_duration_ms: int = 20  # FIXED: Match config.yaml for faster processing
 
 class SpectrogramConfig(BaseModel):
     n_mels: int = 128
     hop_length: int = 160
     win_length: int = 400
-    n_fft: int = 400
+    n_fft: int = 1024  # FIXED: Match config.yaml to resolve mel filterbank warning
 
 class StreamingConfig(BaseModel):
     max_connections: int = 100
-    buffer_size: int = 4096
+    buffer_size: int = 2048  # FIXED: Match config.yaml for lower latency
     timeout_seconds: int = 300
-    latency_target_ms: int = 300  # Updated to match sub-300ms requirement
+    latency_target_ms: int = 100  # FIXED: Match config.yaml aggressive target
     
 class PerformanceConfig(BaseModel):
     """Performance monitoring and optimization configuration"""
@@ -85,9 +89,9 @@ class TTSVoicesConfig(BaseModel):
 class TTSPerformanceConfig(BaseModel):
     """TTS performance and optimization settings"""
     batch_size: int = 1  # Direct integration uses batch_size=1
-    max_queue_size: int = 32
-    num_workers: int = 4
-    target_latency_ms: int = 150  # Target for TTS generation
+    max_queue_size: int = 16  # FIXED: Match config.yaml for lower latency
+    num_workers: int = 2  # FIXED: Match config.yaml to minimize overhead
+    target_latency_ms: int = 100  # FIXED: Match config.yaml aggressive target
     memory_optimization: str = "balanced"  # "performance", "balanced", "memory_efficient"
 
 class GPUMemoryConfig(BaseModel):

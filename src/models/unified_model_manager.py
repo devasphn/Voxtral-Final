@@ -413,3 +413,10 @@ class UnifiedModelManager:
 
 # Global unified model manager instance
 unified_model_manager = UnifiedModelManager()
+
+def get_unified_manager() -> UnifiedModelManager:
+    """
+    Get the global unified model manager instance
+    Used by ultra-low latency manager for model sharing
+    """
+    return unified_model_manager

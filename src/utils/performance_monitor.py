@@ -403,3 +403,10 @@ class PerformanceMonitor:
 
 # Global performance monitor instance
 performance_monitor = PerformanceMonitor()
+
+def get_performance_monitor() -> PerformanceMonitor:
+    """
+    Get the global performance monitor instance
+    Used by ultra-low latency handler for performance tracking
+    """
+    return performance_monitor

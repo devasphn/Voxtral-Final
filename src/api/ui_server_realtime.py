@@ -11,6 +11,7 @@ import time
 import json
 import base64
 import numpy as np
+import torch  # ADDED: Missing torch import for WebSocket endpoint
 from pathlib import Path
 import logging
 import sys
@@ -42,6 +43,12 @@ _audio_processor = None
 _performance_monitor = None
 _speech_to_speech_pipeline = None
 
+# ULTRA-LOW LATENCY: Global variables for optimized components
+_ultra_low_latency_manager = None
+_ull_websocket_handler = None
+_chunked_processor = None
+_ultra_low_latency_mode = True  # Enable ultra-low latency by default
+
 # Response deduplication tracking
 recent_responses = {}  # client_id -> last_response_text
 
@@ -71,6 +78,34 @@ def get_performance_monitor():
         _performance_monitor = performance_monitor
         streaming_logger.info("Performance monitor loaded")
     return _performance_monitor
+
+# ULTRA-LOW LATENCY: Optimized component getters
+def get_ultra_low_latency_manager():
+    """Get ultra-low latency manager instance"""
+    global _ultra_low_latency_manager
+    if _ultra_low_latency_manager is None:
+        from src.models.ultra_low_latency_manager import get_ultra_low_latency_manager
+        _ultra_low_latency_manager = get_ultra_low_latency_manager()
+        streaming_logger.info("Ultra-low latency manager loaded")
+    return _ultra_low_latency_manager
+
+def get_ull_websocket_handler():
+    """Get ultra-low latency WebSocket handler"""
+    global _ull_websocket_handler
+    if _ull_websocket_handler is None:
+        from src.api.ultra_low_latency_handler import get_ull_websocket_handler
+        _ull_websocket_handler = get_ull_websocket_handler()
+        streaming_logger.info("Ultra-low latency WebSocket handler loaded")
+    return _ull_websocket_handler
+
+def get_chunked_processor():
+    """Get chunked streaming processor"""
+    global _chunked_processor
+    if _chunked_processor is None:
+        from src.audio.chunked_streaming_processor import get_chunked_processor
+        _chunked_processor = get_chunked_processor()
+        streaming_logger.info("Chunked streaming processor loaded")
+    return _chunked_processor
 def get_speech_to_speech_pipeline():
     """Lazy initialization of Speech-to-Speech pipeline"""
     global _speech_to_speech_pipeline
@@ -1041,6 +1076,14 @@ async def home(request: Request):
                     }
                     break;
 
+                case 'streaming_complete':
+                    // Handle streaming session completion
+                    if (streamingModeEnabled) {
+                        handleStreamingComplete(data);
+                        log(`[OK] Streaming complete: ${data.total_words_sent || 0} words sent`);
+                    }
+                    break;
+
                 default:
                     log(`Unknown message type: ${data.type}`);
             }
@@ -1569,14 +1612,41 @@ async def home(request: Request):
         function handleStreamingAudio(data) {
             // Handle streaming audio chunks for immediate playback
             try {
+                log(`[AUDIO] Received streaming audio: ${data.audio_data.length} chars, format: ${data.format || 'unknown'}`);
+
                 const audioBytes = Uint8Array.from(atob(data.audio_data), c => c.charCodeAt(0));
+                log(`[AUDIO] Decoded audio bytes: ${audioBytes.length} bytes`);
+
+                // Validate WAV headers if format is specified as WAV
+                if (data.format === 'wav' && audioBytes.length >= 12) {
+                    const riffHeader = String.fromCharCode(...audioBytes.slice(0, 4));
+                    const waveHeader = String.fromCharCode(...audioBytes.slice(8, 12));
+                    log(`[AUDIO] WAV validation - RIFF: ${riffHeader}, WAVE: ${waveHeader}`);
+
+                    if (riffHeader !== 'RIFF' || waveHeader !== 'WAVE') {
+                        log(`[ERROR] Invalid WAV headers detected!`);
+                    }
+                }
+
                 const audioBlob = new Blob([audioBytes], { type: 'audio/wav' });
                 const audioUrl = URL.createObjectURL(audioBlob);
+                log(`[AUDIO] Created blob: ${audioBlob.size} bytes, URL: ${audioUrl.substring(0, 50)}...`);
 
-                // Create and play audio immediately
+                // Create and play audio immediately with enhanced error handling
                 const audio = new Audio(audioUrl);
+                audio.preload = 'auto';
+
+                audio.addEventListener('loadstart', () => log(`[AUDIO] Loading started for chunk ${data.chunk_index}`));
+                audio.addEventListener('canplay', () => log(`[AUDIO] Can play chunk ${data.chunk_index}`));
+                audio.addEventListener('error', (e) => {
+                    log(`[ERROR] Audio error for chunk ${data.chunk_index}: ${e.target.error?.message || 'Unknown error'}`);
+                    log(`[ERROR] Audio error code: ${e.target.error?.code || 'Unknown'}`);
+                });
+
                 audio.play().catch(e => {
-                    log(`Error playing streaming audio: ${e.message}`);
+                    log(`[ERROR] Failed to play streaming audio chunk ${data.chunk_index}: ${e.message}`);
+                    log(`[ERROR] Audio src: ${audio.src.substring(0, 100)}...`);
+                    log(`[ERROR] Audio readyState: ${audio.readyState}, networkState: ${audio.networkState}`);
                 });
 
                 log(`[AUDIO] Playing streaming audio chunk ${data.chunk_index}`);
@@ -1587,7 +1657,8 @@ async def home(request: Request):
                 });
 
             } catch (error) {
-                log(`Error handling streaming audio: ${error.message}`);
+                log(`[ERROR] Error handling streaming audio: ${error.message}`);
+                log(`[ERROR] Stack trace: ${error.stack}`);
             }
         }
 
@@ -1607,6 +1678,35 @@ async def home(request: Request):
             // Show interruption message
             updateStatus('[EMOJI] Interruption detected - ready for new input', 'info');
             log('[EMOJI] User interruption handled - cleared streaming state');
+        }
+
+        function handleStreamingComplete(data) {
+            // Handle streaming session completion
+            const currentResponseDiv = document.getElementById('current-streaming-response');
+            if (currentResponseDiv) {
+                // Finalize the streaming response
+                currentResponseDiv.classList.remove('streaming');
+                currentResponseDiv.classList.add('completed');
+
+                // Update with final response if provided
+                if (data.full_response && data.full_response.trim()) {
+                    const textSpan = currentResponseDiv.querySelector('.streaming-text');
+                    textSpan.textContent = data.full_response;
+                }
+
+                // Remove the ID so it doesn't interfere with future streaming
+                currentResponseDiv.removeAttribute('id');
+            }
+
+            // Update status
+            const wordsCount = data.total_words_sent || 0;
+            const processingTime = data.voxtral_time_ms || 0;
+            updateStatus(`Streaming complete: ${wordsCount} words in ${processingTime.toFixed(1)}ms`, 'success');
+
+            // Reset pending response flag
+            pendingResponse = false;
+
+            log(`[OK] Streaming session completed: ${wordsCount} words, ${processingTime.toFixed(1)}ms processing time`);
         }
 
         // Initialize on page load
@@ -1703,16 +1803,30 @@ async def api_status():
             "integration_type": "kokoro_tts"
         }, status_code=500)
 
-# WebSocket endpoint for CONVERSATIONAL streaming with VAD
+# IMPROVED: WebSocket endpoint for CONVERSATIONAL streaming with VAD
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
-    """WebSocket endpoint for CONVERSATIONAL audio streaming with VAD"""
-    await websocket.accept()
-    client_id = f"{websocket.client.host}:{websocket.client.port}"
-    streaming_logger.info(f"[CONVERSATION] Client connected: {client_id}")
-    
+    """ENHANCED: WebSocket endpoint for CONVERSATIONAL audio streaming with VAD"""
+    client_id = None
+
     try:
-        # Send welcome message
+        await websocket.accept()
+        client_id = f"{websocket.client.host}:{websocket.client.port}"
+        streaming_logger.info(f"[CONVERSATION] Client connected: {client_id}")
+
+        # ADDED: Check if models are ready before accepting connections
+        unified_manager = get_unified_manager()
+        if not unified_manager.is_initialized:
+            await websocket.send_text(json.dumps({
+                "type": "error",
+                "status": "not_ready",
+                "message": "Server is still initializing models. Please wait and try again.",
+                "retry_after_seconds": 10
+            }))
+            await websocket.close(code=1013)  # Try again later
+            return
+
+        # Send welcome message with enhanced server info
         await websocket.send_text(json.dumps({
             "type": "connection",
             "status": "connected",
@@ -1722,53 +1836,159 @@ async def websocket_endpoint(websocket: WebSocket):
                 "chunk_size": config.audio.chunk_size,
                 "latency_target": config.streaming.latency_target_ms,
                 "streaming_mode": "conversational_optimized_with_vad",
-                "vad_enabled": True
+                "vad_enabled": True,
+                "models_ready": True,
+                "gpu_available": torch.cuda.is_available(),
+                "gpu_name": torch.cuda.get_device_name(0) if torch.cuda.is_available() else None
             }
         }))
         
+        # ENHANCED: Main message loop with improved error handling
         while True:
             try:
+                # Receive message with timeout
                 data = await asyncio.wait_for(websocket.receive_text(), timeout=300.0)
-                message = json.loads(data)
-                msg_type = message.get("type")
-                
-                streaming_logger.debug(f"[CONVERSATION] Received message type: {msg_type} from {client_id}")
-                
-                if msg_type == "audio_chunk":
-                    await handle_conversational_audio_chunk(websocket, message, client_id)
-                    
-                elif msg_type == "ping":
+
+                try:
+                    message = json.loads(data)
+                    msg_type = message.get("type")
+                except json.JSONDecodeError as e:
+                    streaming_logger.warning(f"[CONVERSATION] Invalid JSON from {client_id}: {e}")
                     await websocket.send_text(json.dumps({
-                        "type": "pong", 
+                        "type": "error",
+                        "message": "Invalid JSON format",
                         "timestamp": time.time()
                     }))
-                    
-                elif msg_type == "status":
-                    unified_manager = get_unified_manager()
-                    model_info = unified_manager.get_model_info()
-                    performance_monitor = get_performance_monitor()
-                    performance_summary = performance_monitor.get_performance_summary()
-                    
+                    continue
+
+                streaming_logger.debug(f"[CONVERSATION] Received message type: {msg_type} from {client_id}")
+
+                # Handle different message types
+                if msg_type == "audio_chunk":
+                    try:
+                        await handle_conversational_audio_chunk(websocket, message, client_id)
+                    except Exception as audio_error:
+                        streaming_logger.error(f"[CONVERSATION] Audio processing error for {client_id}: {audio_error}")
+                        await websocket.send_text(json.dumps({
+                            "type": "error",
+                            "message": f"Audio processing failed: {str(audio_error)}",
+                            "timestamp": time.time()
+                        }))
+
+                elif msg_type == "ping":
                     await websocket.send_text(json.dumps({
-                        "type": "status",
-                        "model_info": model_info,
-                        "performance_summary": performance_summary
+                        "type": "pong",
+                        "timestamp": time.time()
                     }))
-                    
+
+                elif msg_type == "status":
+                    try:
+                        unified_manager = get_unified_manager()
+                        model_info = unified_manager.get_model_info()
+                        performance_monitor = get_performance_monitor()
+                        performance_summary = performance_monitor.get_performance_summary()
+
+                        await websocket.send_text(json.dumps({
+                            "type": "status",
+                            "model_info": model_info,
+                            "performance_summary": performance_summary,
+                            "timestamp": time.time()
+                        }))
+                    except Exception as status_error:
+                        streaming_logger.error(f"[CONVERSATION] Status error for {client_id}: {status_error}")
+                        await websocket.send_text(json.dumps({
+                            "type": "error",
+                            "message": "Failed to get status",
+                            "timestamp": time.time()
+                        }))
+
                 else:
-                    streaming_logger.warning(f"[CONVERSATION] Unknown message type: {msg_type}")
-                    
+                    streaming_logger.warning(f"[CONVERSATION] Unknown message type: {msg_type} from {client_id}")
+                    await websocket.send_text(json.dumps({
+                        "type": "error",
+                        "message": f"Unknown message type: {msg_type}",
+                        "timestamp": time.time()
+                    }))
+
             except asyncio.TimeoutError:
-                streaming_logger.info(f"[CONVERSATION] Client {client_id} timeout - sending ping")
+                # Send keepalive ping
+                streaming_logger.debug(f"[CONVERSATION] Client {client_id} timeout - sending keepalive ping")
                 try:
-                    await websocket.send_text(json.dumps({"type": "ping"}))
-                except:
+                    await websocket.send_text(json.dumps({
+                        "type": "ping",
+                        "timestamp": time.time()
+                    }))
+                except Exception as ping_error:
+                    streaming_logger.warning(f"[CONVERSATION] Failed to send ping to {client_id}: {ping_error}")
                     break
-                    
+
+            except Exception as loop_error:
+                streaming_logger.error(f"[CONVERSATION] Unexpected error in message loop for {client_id}: {loop_error}")
+                try:
+                    await websocket.send_text(json.dumps({
+                        "type": "error",
+                        "message": "Internal server error",
+                        "timestamp": time.time()
+                    }))
+                except:
+                    pass
+                break
+
     except WebSocketDisconnect:
         streaming_logger.info(f"[CONVERSATION] Client disconnected: {client_id}")
     except Exception as e:
         streaming_logger.error(f"[CONVERSATION] WebSocket error for {client_id}: {e}")
+        # Try to send error message before closing
+        try:
+            if websocket.client_state.name != "DISCONNECTED":
+                await websocket.send_text(json.dumps({
+                    "type": "error",
+                    "message": "Connection error occurred",
+                    "timestamp": time.time()
+                }))
+        except:
+            pass
+    finally:
+        # Cleanup any resources for this client
+        if client_id:
+            streaming_logger.info(f"[CONVERSATION] Cleaning up resources for {client_id}")
+            # Add any cleanup logic here if needed
+
+@app.websocket("/ws/ultra-low-latency")
+async def ultra_low_latency_websocket_endpoint(websocket: WebSocket):
+    """ULTRA-LOW LATENCY: WebSocket endpoint optimized for <200ms end-to-end latency"""
+    client_id = None
+
+    try:
+        await websocket.accept()
+        client_id = f"{websocket.client.host}:{websocket.client.port}"
+        streaming_logger.info(f"[ULL] Ultra-low latency client connected: {client_id}")
+
+        # Initialize ultra-low latency handler
+        ull_handler = get_ull_websocket_handler()
+
+        # Initialize handler if not already done
+        if not hasattr(ull_handler, 'manager') or not ull_handler.manager:
+            streaming_logger.info(f"[ULL] Initializing ultra-low latency handler for {client_id}")
+            success = await ull_handler.initialize()
+            if not success:
+                await websocket.send_text(json.dumps({
+                    "type": "error",
+                    "message": "Ultra-low latency system initialization failed",
+                    "timestamp": time.time()
+                }))
+                return
+
+        # Delegate to the optimized handler
+        await ull_handler.handle_connection(websocket, "/ws/ultra-low-latency")
+
+    except WebSocketDisconnect:
+        streaming_logger.info(f"[ULL] Ultra-low latency client disconnected: {client_id}")
+    except Exception as e:
+        streaming_logger.error(f"[ULL] Ultra-low latency WebSocket error for {client_id}: {e}")
+    finally:
+        if client_id:
+            streaming_logger.info(f"[ULL] Cleaning up ultra-low latency resources for {client_id}")
 
 async def detect_user_interruption(audio_chunk: np.ndarray, current_state: str = "idle") -> bool:
     """
@@ -1942,14 +2162,54 @@ async def handle_conversational_audio_chunk(websocket: WebSocket, data: dict, cl
                                 chunk_id=f"{chunk_id}_tts_{stream_chunk.content['sequence_number']}"
                             ):
                                 if tts_chunk.get('audio_chunk'):
-                                    # Send audio chunk immediately
-                                    audio_b64 = base64.b64encode(tts_chunk['audio_chunk']).decode('utf-8')
+                                    # CRITICAL FIX: Convert streaming audio chunk to WAV format for browser compatibility
+                                    try:
+                                        import soundfile as sf
+                                        from io import BytesIO
+                                        import numpy as np
+
+                                        # Get raw audio data
+                                        raw_audio = tts_chunk['audio_chunk']
+                                        sample_rate = tts_chunk.get('sample_rate', 24000)
+
+                                        # Convert to numpy array if needed
+                                        if isinstance(raw_audio, bytes):
+                                            # Assume 16-bit PCM data
+                                            audio_array = np.frombuffer(raw_audio, dtype=np.int16).astype(np.float32) / 32767.0
+                                        elif hasattr(raw_audio, 'numpy'):
+                                            # PyTorch tensor
+                                            audio_array = raw_audio.detach().cpu().numpy().astype(np.float32)
+                                        else:
+                                            # Already numpy array
+                                            audio_array = np.array(raw_audio, dtype=np.float32)
+
+                                        # Create WAV file in memory for browser compatibility
+                                        wav_buffer = BytesIO()
+                                        sf.write(wav_buffer, audio_array, sample_rate, format='WAV', subtype='PCM_16')
+                                        wav_bytes = wav_buffer.getvalue()
+                                        wav_buffer.close()
+
+                                        # Validate WAV creation
+                                        if len(wav_bytes) > 44:  # Valid WAV file
+                                            audio_b64 = base64.b64encode(wav_bytes).decode('utf-8')
+                                        else:
+                                            # Fallback: skip this chunk
+                                            realtime_logger.warning(f"[WARN] Skipping invalid streaming audio chunk: {len(wav_bytes)} bytes")
+                                            continue
+
+                                    except Exception as wav_error:
+                                        realtime_logger.error(f"[ERROR] Failed to convert streaming audio to WAV: {wav_error}")
+                                        # Fallback: send raw data (will likely fail in browser)
+                                        audio_b64 = base64.b64encode(tts_chunk['audio_chunk']).decode('utf-8')
+
+                                    # Send properly formatted audio chunk
                                     await websocket.send_text(json.dumps({
                                         "type": "streaming_audio",
                                         "audio_data": audio_b64,
                                         "chunk_index": tts_chunk['chunk_index'],
                                         "is_final": tts_chunk['is_final'],
-                                        "sample_rate": tts_chunk['sample_rate'],
+                                        "sample_rate": tts_chunk.get('sample_rate', 24000),
+                                        "format": "wav",  # Explicitly specify WAV format
                                         "text_source": words_text,
                                         "timestamp": time.time()
                                     }))
@@ -2146,7 +2406,7 @@ async def handle_conversational_audio_chunk(websocket: WebSocket, data: dict, cl
         streaming_logger.error(f"[CONVERSATION] Error handling audio chunk: {e}")
 
 async def initialize_models_at_startup():
-    """Initialize all models using unified model manager at application startup"""
+    """IMPROVED: Initialize all models using unified model manager at application startup"""
     streaming_logger.info("[INIT] Initializing unified model system at startup...")
 
     try:
@@ -2157,11 +2417,42 @@ async def initialize_models_at_startup():
 
         if not unified_manager.is_initialized:
             streaming_logger.info("[INPUT] Initializing unified model manager...")
+
+            # ADDED: Track initialization progress
+            init_start_time = time.time()
             success = await unified_manager.initialize()
-            
+            init_duration = time.time() - init_start_time
+
             if success:
-                streaming_logger.info("[OK] Unified model manager initialized successfully")
-                
+                streaming_logger.info(f"[OK] Unified model manager initialized successfully in {init_duration:.2f}s")
+
+                # ULTRA-LOW LATENCY: Initialize optimized components if enabled
+                if _ultra_low_latency_mode:
+                    streaming_logger.info("[ULL] Initializing ultra-low latency components...")
+
+                    # Initialize ultra-low latency manager
+                    ull_manager = get_ultra_low_latency_manager()
+                    ull_init_start = time.time()
+                    ull_success = await ull_manager.initialize()
+                    ull_init_duration = time.time() - ull_init_start
+
+                    if ull_success:
+                        streaming_logger.info(f"[ULL] Ultra-low latency manager initialized in {ull_init_duration:.2f}s")
+
+                        # Initialize WebSocket handler
+                        ull_handler = get_ull_websocket_handler()
+                        handler_success = await ull_handler.initialize()
+
+                        if handler_success:
+                            streaming_logger.info("[ULL] Ultra-low latency WebSocket handler ready")
+                        else:
+                            streaming_logger.error("[ULL] Ultra-low latency WebSocket handler initialization failed")
+                    else:
+                        streaming_logger.error("[ULL] Ultra-low latency manager initialization failed")
+                        streaming_logger.info("[ULL] Falling back to standard latency mode")
+                        # Disable ultra-low latency mode on failure
+                        globals()['_ultra_low_latency_mode'] = False
+
                 # Get model info for logging
                 model_info = unified_manager.get_model_info()
                 streaming_logger.info(f"[STATS] Voxtral initialized: {model_info['unified_manager']['voxtral_initialized']}")
@@ -2173,16 +2464,87 @@ async def initialize_models_at_startup():
                     stats = memory_stats["memory_stats"]
                     streaming_logger.info(f"[FLOPPY] GPU Memory: {stats['used_vram_gb']:.2f}GB / {stats['total_vram_gb']:.2f}GB")
                     streaming_logger.info(f"[FLOPPY] Voxtral: {stats['voxtral_memory_gb']:.2f}GB, Kokoro: {stats['kokoro_memory_gb']:.2f}GB")
-                
+
+                # ADDED: Update health check status
+                try:
+                    from src.api.health_check import update_model_status
+                    update_model_status({
+                        "initialized": True,
+                        "info": {
+                            "status": "ready",
+                            "voxtral_initialized": model_info['unified_manager']['voxtral_initialized'],
+                            "kokoro_initialized": model_info['unified_manager']['kokoro_initialized'],
+                            "initialization_time_s": init_duration,
+                            "memory_stats": memory_stats.get("memory_stats", {})
+                        }
+                    })
+                    streaming_logger.info("[HEALTH] Model status updated for health checks")
+                except Exception as health_error:
+                    streaming_logger.warning(f"[WARN] Failed to update health status: {health_error}")
+
             else:
                 raise Exception("Unified model manager initialization failed")
         else:
             streaming_logger.info("[OK] Unified model manager already initialized")
 
+            # ADDED: Still update health status for already initialized models
+            try:
+                from src.api.health_check import update_model_status
+                model_info = unified_manager.get_model_info()
+                update_model_status({
+                    "initialized": True,
+                    "info": {
+                        "status": "ready",
+                        "voxtral_initialized": model_info['unified_manager']['voxtral_initialized'],
+                        "kokoro_initialized": model_info['unified_manager']['kokoro_initialized'],
+                        "initialization_time_s": 0,  # Already initialized
+                        "memory_stats": unified_manager.get_memory_stats().get("memory_stats", {})
+                    }
+                })
+            except Exception as health_error:
+                streaming_logger.warning(f"[WARN] Failed to update health status: {health_error}")
+
         streaming_logger.info("[SUCCESS] All models ready for conversation with Kokoro TTS integration!")
+
+        # ADDED: Perform a quick model test to ensure everything is working
+        try:
+            streaming_logger.info("[TEST] Performing quick model validation...")
+            voxtral_model = await unified_manager.get_voxtral_model()
+            kokoro_model = await unified_manager.get_kokoro_model()
+
+            if voxtral_model and voxtral_model.is_initialized:
+                streaming_logger.info("[TEST] Voxtral model validation: PASSED")
+            else:
+                streaming_logger.warning("[TEST] Voxtral model validation: FAILED")
+
+            if kokoro_model and kokoro_model.is_initialized:
+                streaming_logger.info("[TEST] Kokoro TTS model validation: PASSED")
+            else:
+                streaming_logger.warning("[TEST] Kokoro TTS model validation: FAILED")
+
+            streaming_logger.info("[TEST] Model validation completed")
+
+        except Exception as test_error:
+            streaming_logger.warning(f"[TEST] Model validation failed: {test_error}")
 
     except Exception as e:
         streaming_logger.error(f"[ERROR] Failed to initialize unified model system: {e}")
+
+        # ADDED: Update health status with error
+        try:
+            from src.api.health_check import update_model_status
+            update_model_status({
+                "initialized": False,
+                "info": {
+                    "status": "error",
+                    "error": str(e),
+                    "voxtral_initialized": False,
+                    "kokoro_initialized": False
+                }
+            })
+        except:
+            pass
+
         # Try to get error details from unified manager
         try:
             unified_manager = get_unified_manager()

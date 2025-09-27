@@ -67,7 +67,7 @@ class KokoroModelManager:
     
     def check_model_availability(self) -> Dict[str, bool]:
         """
-        Check which model files are available locally
+        IMPROVED: Check which model files are available locally with better validation
 
         Returns:
             Dict mapping file names to availability status
@@ -84,27 +84,89 @@ class KokoroModelManager:
                 availability[file_key] = False
             return availability
 
+        # Check each file with improved validation
         for file_key, file_path in self.model_files.items():
             local_path = os.path.join(self.actual_cache_dir, file_path)
-            availability[file_key] = os.path.exists(local_path) and os.path.getsize(local_path) > 0
+
+            # Enhanced file validation
+            file_exists = os.path.exists(local_path)
+            file_size_ok = False
+
+            if file_exists:
+                try:
+                    file_size = os.path.getsize(local_path)
+                    expected_min_size = self.expected_sizes.get(file_key, 1000)  # Default 1KB minimum
+                    file_size_ok = file_size >= expected_min_size
+
+                    if not file_size_ok:
+                        kokoro_manager_logger.debug(f"[WARN] File {file_key} too small: {file_size} < {expected_min_size}")
+
+                except OSError as e:
+                    kokoro_manager_logger.debug(f"[WARN] Cannot check size of {file_key}: {e}")
+                    file_size_ok = False
+
+            availability[file_key] = file_exists and file_size_ok
 
         return availability
 
     def _find_cache_directory(self):
-        """Find the actual HuggingFace cache directory for our model"""
+        """FIXED: Find the actual HuggingFace cache directory for our model"""
         try:
             from huggingface_hub import snapshot_download
-            # This will return the path without downloading if it exists
-            cache_path = snapshot_download(
-                repo_id=self.repo_id,
-                cache_dir=self.cache_dir,
-                local_files_only=True,
-                allow_patterns=["*.pth", "voices/*.pt"]
-            )
-            self.actual_cache_dir = cache_path
-            kokoro_manager_logger.info(f"[FILE] Found cache directory: {cache_path}")
+            from huggingface_hub.utils import LocalEntryNotFoundError
+
+            # First try to find existing cache without downloading
+            try:
+                cache_path = snapshot_download(
+                    repo_id=self.repo_id,
+                    cache_dir=self.cache_dir,
+                    local_files_only=True,
+                    allow_patterns=["*.pth", "voices/*.pt"]
+                )
+                self.actual_cache_dir = cache_path
+                kokoro_manager_logger.info(f"[FILE] Found existing cache directory: {cache_path}")
+                return
+            except LocalEntryNotFoundError:
+                kokoro_manager_logger.debug("No local cache found, will need to download")
+
+            # If no local cache, try to find in default HuggingFace cache
+            import os
+            from pathlib import Path
+
+            # Check default HuggingFace cache locations
+            possible_cache_dirs = [
+                os.path.expanduser("~/.cache/huggingface/hub"),
+                "/root/.cache/huggingface/hub",  # Common in containers
+                self.cache_dir if self.cache_dir else None
+            ]
+
+            for cache_base in possible_cache_dirs:
+                if not cache_base or not os.path.exists(cache_base):
+                    continue
+
+                # Look for our model directory
+                model_dir_pattern = f"models--{self.repo_id.replace('/', '--')}"
+                model_path = os.path.join(cache_base, model_dir_pattern)
+
+                if os.path.exists(model_path):
+                    # Find the latest snapshot
+                    snapshots_dir = os.path.join(model_path, "snapshots")
+                    if os.path.exists(snapshots_dir):
+                        snapshots = [d for d in os.listdir(snapshots_dir)
+                                   if os.path.isdir(os.path.join(snapshots_dir, d))]
+                        if snapshots:
+                            # Use the most recent snapshot
+                            latest_snapshot = max(snapshots, key=lambda x: os.path.getctime(
+                                os.path.join(snapshots_dir, x)))
+                            self.actual_cache_dir = os.path.join(snapshots_dir, latest_snapshot)
+                            kokoro_manager_logger.info(f"[FILE] Found cached model in: {self.actual_cache_dir}")
+                            return
+
+            kokoro_manager_logger.debug("No cached model found in any location")
+            self.actual_cache_dir = None
+
         except Exception as e:
-            kokoro_manager_logger.debug(f"Cache directory not found: {e}")
+            kokoro_manager_logger.debug(f"Cache directory search failed: {e}")
             self.actual_cache_dir = None
 
     def verify_model_integrity(self) -> Dict[str, bool]:
@@ -135,7 +197,10 @@ class KokoroModelManager:
             
             try:
                 file_size = os.path.getsize(local_path)
-                expected_size = self.expected_sizes.get(file_key, 0)
+                # CRITICAL FIX: Handle both expected_sizes and expected_file_sizes for compatibility
+                expected_size = getattr(self, 'expected_sizes', {}).get(file_key, 0)
+                if expected_size == 0 and hasattr(self, 'expected_file_sizes'):
+                    expected_size = self.expected_file_sizes.get(file_key, 0)
                 
                 # Check if file size is reasonable (within 20% of expected)
                 if expected_size > 0:
