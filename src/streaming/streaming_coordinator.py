@@ -51,13 +51,14 @@ class StreamingCoordinator:
             'total_session_latency': []
         }
         
-        # Streaming configuration
+        # ENHANCED: Streaming configuration - optimized for meaningful chunks and fewer TTS calls
         self.config = {
-            'words_trigger_threshold': 2,  # Start TTS after 2 words
-            'max_word_buffer_size': 50,    # Max words to buffer
+            'words_trigger_threshold': 12,  # ENHANCED: Start TTS after 12 words for more complete phrases
+            'max_word_buffer_size': 50,     # Max words to buffer
             'interruption_timeout_ms': 100, # Max time to detect interruption
-            'tts_chunk_size_ms': 200,      # TTS chunk size for streaming
-            'max_concurrent_tts': 3        # Max concurrent TTS tasks
+            'tts_chunk_size_ms': 300,       # Larger TTS chunk size for fewer calls (was 200)
+            'max_concurrent_tts': 2,        # Reduced concurrent TTS tasks (was 3)
+            'min_words_for_timeout': 6      # Minimum words before timeout trigger
         }
         
         # Callbacks for external integration
@@ -65,6 +66,10 @@ class StreamingCoordinator:
         self.on_audio_ready: Optional[Callable] = None
         self.on_interruption: Optional[Callable] = None
         self.on_session_complete: Optional[Callable] = None
+
+        # FIXED: Add full response tracking for logging
+        self.full_response_text = ""
+        self.total_words_processed = 0
     
     async def start_streaming_session(self, session_id: str = None) -> str:
         """Start a new streaming session"""
@@ -73,7 +78,11 @@ class StreamingCoordinator:
         self.state = StreamingState.LISTENING
         self.interruption_detected = False
         self.word_buffer.clear()
-        
+
+        # FIXED: Reset session tracking variables
+        self.full_response_text = ""
+        self.total_words_processed = 0
+
         # Clear TTS queue
         while not self.tts_queue.empty():
             try:
@@ -119,6 +128,10 @@ class StreamingCoordinator:
                     words_text = token_data.get('text', '').strip()
                     # Enhanced text validation
                     if words_text and isinstance(words_text, str):
+                        # FIXED: Track full response text for logging
+                        self.full_response_text += " " + words_text
+                        self.total_words_processed += len(words_text.split())
+
                         # Add to word buffer with enhanced validation
                         try:
                             self.word_buffer.append({
@@ -135,10 +148,10 @@ class StreamingCoordinator:
                         trigger_threshold = self.config['words_trigger_threshold']
                         buffer_size = len(self.word_buffer)
 
-                        # Trigger TTS if we have enough words OR if enough time has passed
+                        # ENHANCED: Trigger TTS with larger thresholds for meaningful chunks
                         time_since_last = time.time() - (self.word_buffer[-2]['timestamp'] if len(self.word_buffer) > 1 else session_start_time)
                         should_trigger = (buffer_size >= trigger_threshold or
-                                        (buffer_size >= 1 and time_since_last > 0.5))  # 500ms timeout
+                                        (buffer_size >= self.config['min_words_for_timeout'] and time_since_last > 2.0))  # ENHANCED: 2s timeout, min 6 words
 
                         if should_trigger:
                             # Collect words for TTS
@@ -162,6 +175,9 @@ class StreamingCoordinator:
                                 self.performance_metrics['first_word_latency'].append(first_word_latency)
                                 first_word_sent = True
                                 streaming_logger.info(f"[FAST] First words ready in {first_word_latency:.1f}ms: '{combined_text}'")
+                            else:
+                                # Log subsequent word chunks for visibility
+                                streaming_logger.info(f"[VOXTRAL-WORDS] Sending {len(words_for_tts)} words to TTS: '{combined_text}'")
                             
                             # Send words for TTS
                             chunk = StreamingChunk(
@@ -216,16 +232,21 @@ class StreamingCoordinator:
                             if self.on_words_ready:
                                 asyncio.create_task(self.on_words_ready(chunk))
                     
+                    # FIXED: Log complete Voxtral response before completion
+                    streaming_logger.info(f"[VOXTRAL-COMPLETE] Full response ({self.total_words_processed} words): '{self.full_response_text.strip()}'")
+
                     # Send completion
                     total_latency = (time.time() - session_start_time) * 1000
                     self.performance_metrics['total_session_latency'].append(total_latency)
-                    
+
                     yield StreamingChunk(
                         type='session_complete',
                         content={
                             'total_words_sent': words_sent_count,
                             'total_latency_ms': total_latency,
-                            'voxtral_data': token_data
+                            'voxtral_data': token_data,
+                            'full_response_text': self.full_response_text.strip(),  # FIXED: Include full text
+                            'total_words_processed': self.total_words_processed
                         },
                         timestamp=time.time(),
                         chunk_id=f"{self.current_session_id}_complete"

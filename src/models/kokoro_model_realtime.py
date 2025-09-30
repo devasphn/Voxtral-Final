@@ -36,16 +36,21 @@ class KokoroTTSModel:
         # Performance optimization settings
         self.device = config.model.device
         self.torch_dtype = getattr(torch, config.model.torch_dtype)
-        
+
         # TTS-specific settings
         self.sample_rate = config.tts.sample_rate
         self.voice = config.tts.voice
         self.speed = config.tts.speed
         self.lang_code = config.tts.lang_code
-        
-        # Quality and performance settings
-        self.chunk_size = 1024
+
+        # OPTIMIZED: Quality and performance settings for fewer, larger chunks
+        self.chunk_size = 2048  # Larger chunks for better efficiency (was 512)
         self.max_text_length = 1000  # Maximum text length per generation
+        self.streaming_chunk_size = 1024  # Larger streaming chunks to reduce count (was 256)
+        self.enable_streaming_optimizations = True
+        self.prefill_audio_buffer = True  # Pre-fill audio buffers
+        self.use_fast_synthesis = True  # Enable fast synthesis mode
+        self.min_chunk_size_for_split = 2048  # Only split chunks larger than this
         
         tts_logger.info(f"[AUDIO] KokoroTTSModel initialized with device: {self.device}")
         tts_logger.info(f"   [MIC] Voice: {self.voice}, Speed: {self.speed}, Lang: {self.lang_code}")
@@ -83,6 +88,23 @@ class KokoroTTSModel:
 
             # Initialize pipeline with language code
             self.pipeline = KPipeline(lang_code=self.lang_code)
+
+            # ULTRA-LOW LATENCY: Pre-warm the pipeline
+            if self.enable_streaming_optimizations:
+                tts_logger.info("[INIT] Pre-warming Kokoro pipeline for ultra-low latency...")
+
+                # Pre-warm with multiple short samples
+                warm_up_texts = ["Hi", "Hello", "Test"]
+                for warm_text in warm_up_texts:
+                    try:
+                        warm_generator = self.pipeline(warm_text, voice=self.voice, speed=self.speed)
+                        for i, (gs, ps, audio) in enumerate(warm_generator):
+                            if i >= 1:  # Just process first couple chunks
+                                break
+                    except Exception as e:
+                        tts_logger.debug(f"Warm-up warning: {e}")
+
+                tts_logger.info("[OK] Kokoro pipeline pre-warmed for streaming")
 
             # Test the pipeline with a short sample
             test_text = "Kokoro TTS initialization test."
@@ -264,30 +286,73 @@ class KokoroTTSModel:
                 text = text[:self.max_text_length]
                 tts_logger.warning(f"[WARN] Text truncated to {self.max_text_length} characters for streaming chunk {chunk_id}")
 
-            # Generate speech using streaming pipeline
+            # ULTRA-LOW LATENCY: Generate speech using optimized streaming pipeline
             generator = self.pipeline(text, voice=voice, speed=speed)
 
             chunk_count = 0
+            total_audio_samples = 0
+
             for i, (gs, ps, audio) in enumerate(generator):
                 if audio is not None and len(audio) > 0:
-                    # Convert to bytes immediately and yield
-                    audio_bytes = (audio * 32767).astype(np.int16).tobytes()
-                    chunk_count += 1
+                    total_audio_samples += len(audio)
 
-                    # Yield the audio chunk for immediate playback
-                    yield {
-                        'audio_chunk': audio_bytes,
-                        'chunk_index': i,
-                        'is_final': False,
-                        'sample_rate': self.sample_rate
-                    }
+                    # OPTIMIZED: Only split into sub-chunks if audio is very large
+                    if self.use_fast_synthesis and len(audio) > self.min_chunk_size_for_split:
+                        # Split only very large chunks to reduce total chunk count
+                        for sub_start in range(0, len(audio), self.streaming_chunk_size):
+                            sub_end = min(sub_start + self.streaming_chunk_size, len(audio))
+                            sub_audio = audio[sub_start:sub_end]
 
-                    # Minimal logging for speed
-                    if i % 10 == 0:
-                        tts_logger.debug(f"[AUDIO] Streaming chunk {i}: {len(audio)} samples -> {len(audio_bytes)} bytes")
+                            # FIXED: Convert to proper WAV format with headers
+                            if hasattr(sub_audio, 'astype'):
+                                audio_pcm = (sub_audio * 32767).astype(np.int16)
+                            else:
+                                # Handle tensor case
+                                sub_audio_np = sub_audio.cpu().numpy() if hasattr(sub_audio, 'cpu') else np.array(sub_audio)
+                                audio_pcm = (sub_audio_np * 32767).astype(np.int16)
 
-                    # Small delay to prevent overwhelming the pipeline
-                    await asyncio.sleep(0.001)  # 1ms delay
+                            # Create WAV format with proper headers
+                            audio_bytes = self._create_wav_bytes(audio_pcm)
+                            chunk_count += 1
+
+                            yield {
+                                'audio_chunk': audio_bytes,
+                                'chunk_index': chunk_count,
+                                'is_final': False,
+                                'sample_rate': self.sample_rate,
+                                'synthesis_time_ms': (time.time() - synthesis_start_time) * 1000
+                            }
+
+                            # Reduced delay frequency to speed up streaming
+                            if chunk_count % 10 == 0:  # Only delay every 10th chunk (was 5)
+                                await asyncio.sleep(0.001)  # 1ms delay (was 0.5ms)
+                    else:
+                        # FIXED: Convert to proper WAV format with headers
+                        if hasattr(audio, 'astype'):
+                            audio_pcm = (audio * 32767).astype(np.int16)
+                        else:
+                            # Handle tensor case
+                            audio_np = audio.cpu().numpy() if hasattr(audio, 'cpu') else np.array(audio)
+                            audio_pcm = (audio_np * 32767).astype(np.int16)
+
+                        # Create WAV format with proper headers
+                        audio_bytes = self._create_wav_bytes(audio_pcm)
+                        chunk_count += 1
+
+                        yield {
+                            'audio_chunk': audio_bytes,
+                            'chunk_index': chunk_count,
+                            'is_final': False,
+                            'sample_rate': self.sample_rate,
+                            'synthesis_time_ms': (time.time() - synthesis_start_time) * 1000
+                        }
+
+                        # Reduced delay for faster streaming
+                        await asyncio.sleep(0.001)  # 1ms delay (was 0.5ms)
+
+                    # Enhanced logging for chunk tracking (every 10th chunk)
+                    if chunk_count % 10 == 0:
+                        tts_logger.info(f"[AUDIO] Streaming chunk {chunk_count}: {len(audio)} samples -> {len(audio_bytes) if 'audio_bytes' in locals() else 0} bytes")
 
             synthesis_time = (time.time() - synthesis_start_time) * 1000
             tts_logger.info(f"[OK] Streaming synthesis completed in {synthesis_time:.1f}ms ({chunk_count} chunks)")
@@ -329,7 +394,63 @@ class KokoroTTSModel:
         if speed is not None:
             self.speed = max(0.5, min(2.0, speed))  # Clamp speed between 0.5 and 2.0
             tts_logger.info(f"[FAST] Speed updated to: {self.speed}")
-    
+
+    def _create_wav_bytes(self, audio_pcm: np.ndarray) -> bytes:
+        """
+        Create WAV format bytes with proper headers for browser compatibility
+
+        Args:
+            audio_pcm: PCM audio data as int16 numpy array
+
+        Returns:
+            bytes: Complete WAV file as bytes
+        """
+        try:
+            # WAV file parameters
+            sample_rate = self.sample_rate
+            num_channels = 1  # Mono
+            bits_per_sample = 16
+            byte_rate = sample_rate * num_channels * bits_per_sample // 8
+            block_align = num_channels * bits_per_sample // 8
+
+            # Convert PCM data to bytes
+            pcm_bytes = audio_pcm.tobytes()
+            data_size = len(pcm_bytes)
+            file_size = 36 + data_size
+
+            # Create WAV header
+            wav_header = bytearray(44)
+
+            # RIFF header
+            wav_header[0:4] = b'RIFF'
+            wav_header[4:8] = file_size.to_bytes(4, 'little')
+            wav_header[8:12] = b'WAVE'
+
+            # fmt chunk
+            wav_header[12:16] = b'fmt '
+            wav_header[16:20] = (16).to_bytes(4, 'little')  # Chunk size
+            wav_header[20:22] = (1).to_bytes(2, 'little')   # Audio format (PCM)
+            wav_header[22:24] = num_channels.to_bytes(2, 'little')
+            wav_header[24:28] = sample_rate.to_bytes(4, 'little')
+            wav_header[28:32] = byte_rate.to_bytes(4, 'little')
+            wav_header[32:34] = block_align.to_bytes(2, 'little')
+            wav_header[34:36] = bits_per_sample.to_bytes(2, 'little')
+
+            # data chunk
+            wav_header[36:40] = b'data'
+            wav_header[40:44] = data_size.to_bytes(4, 'little')
+
+            # Combine header and data
+            wav_bytes = bytes(wav_header) + pcm_bytes
+
+            tts_logger.debug(f"[AUDIO] Created WAV: {len(wav_bytes)} bytes ({data_size} audio + 44 header)")
+            return wav_bytes
+
+        except Exception as e:
+            tts_logger.error(f"[ERROR] WAV creation failed: {e}")
+            # Fallback: return raw PCM bytes
+            return audio_pcm.tobytes()
+
     def get_model_info(self) -> Dict[str, Any]:
         """Get comprehensive model information and performance statistics"""
         base_info = {

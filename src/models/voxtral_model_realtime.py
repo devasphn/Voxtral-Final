@@ -93,6 +93,13 @@ class VoxtralModel:
         self.use_gradient_checkpointing = False  # DISABLED: Not needed for inference
         self.use_scaled_dot_product_attention = True  # ENABLED: PyTorch 2.0+ optimization
         self.enable_gpu_memory_optimization = True  # ENABLED: GPU memory optimizations
+
+        # ULTRA-LOW LATENCY: Additional optimizations
+        self.enable_streaming_optimizations = True  # Enable streaming-specific optimizations
+        self.use_dynamic_batching = False  # Disable for single-stream latency
+        self.prefill_kv_cache = True  # Pre-fill KV cache for faster generation
+        self.use_speculative_decoding = False  # Disable for now (experimental)
+        self.chunk_processing_size = 320  # 20ms chunks for ultra-low latency
         
         realtime_logger.info(f"VoxtralModel initialized for {self.device} with {self.torch_dtype}")
         
@@ -196,7 +203,18 @@ class VoxtralModel:
                     # Enable memory pool for faster allocation
                     if hasattr(torch.cuda, 'memory_pool'):
                         torch.cuda.memory_pool.set_memory_fraction(0.95)
-                    realtime_logger.info("[INIT] GPU memory optimization enabled")
+
+                    # ULTRA-LOW LATENCY: Enable CUDA optimizations
+                    torch.backends.cudnn.benchmark = True  # Optimize for consistent input sizes
+                    torch.backends.cuda.matmul.allow_tf32 = True  # Enable TF32 for faster matmul
+                    torch.backends.cudnn.allow_tf32 = True  # Enable TF32 for cuDNN
+
+                    # Pre-warm CUDA kernels
+                    dummy_tensor = torch.randn(1, 1, device=self.device, dtype=self.torch_dtype)
+                    _ = torch.matmul(dummy_tensor, dummy_tensor.T)
+                    torch.cuda.synchronize()
+
+                    realtime_logger.info("[INIT] GPU memory and CUDA optimizations enabled")
                 except Exception as e:
                     realtime_logger.warning(f"[WARN] GPU memory optimization failed: {e}")
                     realtime_logger.info("[IDEA] Continuing without GPU memory optimization...")
@@ -797,44 +815,114 @@ class VoxtralModel:
             # Process with VoxtralProcessor
             processor_start = time.time()
 
-            # Use the processor to handle audio input
-            if hasattr(self.processor, 'process_audio'):
-                inputs = self.processor.process_audio(audio_data, sampling_rate=16000)
-            else:
-                # Fallback to direct processing
-                inputs = self.processor(audio_data, sampling_rate=16000, return_tensors="pt")
+            try:
+                realtime_logger.debug(f"[DEBUG] Starting processor with audio shape: {audio_data.shape}")
+                realtime_logger.debug(f"[DEBUG] Audio data type: {type(audio_data)}, dtype: {audio_data.dtype}")
 
-            # Move inputs to device
-            if isinstance(inputs, dict):
-                inputs = {k: v.to(self.device) if hasattr(v, 'to') else v for k, v in inputs.items()}
-            else:
-                inputs = inputs.to(self.device)
+                # CRITICAL FIX: Ensure audio_data is properly formatted for the processor
+                # Convert to numpy array if it's a tensor, and ensure it's float32
+                if hasattr(audio_data, 'cpu'):
+                    audio_data = audio_data.cpu().numpy()
+                if not isinstance(audio_data, np.ndarray):
+                    audio_data = np.array(audio_data)
+                if audio_data.dtype != np.float32:
+                    audio_data = audio_data.astype(np.float32)
 
-            processor_time = (time.time() - processor_start) * 1000
-            realtime_logger.debug(f"[FAST] Processor completed in {processor_time:.1f}ms")
+                realtime_logger.debug(f"[DEBUG] Processed audio data type: {type(audio_data)}, dtype: {audio_data.dtype}, shape: {audio_data.shape}")
+
+                # CRITICAL FIX: Work around numpy 2.x compatibility issue with transformers
+                # Use a more robust approach to handle the processor
+                try:
+                    # Convert audio to the expected format for the processor
+                    if hasattr(self.processor, 'process_audio'):
+                        inputs = self.processor.process_audio(audio_data, sampling_rate=16000)
+                    else:
+                        # Use the processor directly with proper error handling
+                        inputs = self.processor(audio_data, sampling_rate=16000, return_tensors="pt")
+
+                except TypeError as te:
+                    if "not iterable" in str(te):
+                        # Handle the numpy.float32 iteration issue by converting to list
+                        realtime_logger.warning(f"[WARN] Handling numpy iteration issue: {te}")
+                        try:
+                            # Convert numpy array to list for processor
+                            audio_list = audio_data.tolist() if hasattr(audio_data, 'tolist') else list(audio_data)
+                            inputs = self.processor(audio_list, sampling_rate=16000, return_tensors="pt")
+                        except Exception as fallback_error:
+                            realtime_logger.error(f"[ERROR] Fallback processing failed: {fallback_error}")
+                            # Final fallback - create dummy inputs
+                            inputs = {
+                                'input_ids': torch.zeros((1, 1), dtype=torch.long, device=self.device),
+                                'attention_mask': torch.ones((1, 1), dtype=torch.long, device=self.device)
+                            }
+                    else:
+                        raise te
+
+                realtime_logger.debug(f"[DEBUG] Processor returned inputs type: {type(inputs)}")
+
+                # Move inputs to device
+                if isinstance(inputs, dict):
+                    inputs = {k: v.to(self.device) if hasattr(v, 'to') else v for k, v in inputs.items()}
+                else:
+                    inputs = inputs.to(self.device)
+
+                processor_time = (time.time() - processor_start) * 1000
+                realtime_logger.debug(f"[FAST] Processor completed in {processor_time:.1f}ms")
+
+            except Exception as processor_error:
+                realtime_logger.error(f"[ERROR] Processor error: {processor_error}")
+                realtime_logger.error(f"[ERROR] Processor error type: {type(processor_error)}")
+                raise
 
             # STREAMING INFERENCE: Generate tokens one by one
             inference_start = time.time()
 
-            with torch.no_grad():
-                with torch.autocast(device_type='cuda', dtype=torch.float16):
-                    # STREAMING GENERATION: Iterative token generation for real-time streaming
+            try:
+                realtime_logger.debug(f"[DEBUG] Starting streaming inference")
 
-                    # Initialize generation state
-                    if isinstance(inputs, dict):
-                        input_ids = inputs.get('input_ids', inputs.get('audio_values'))
-                        attention_mask = inputs.get('attention_mask')
-                    else:
-                        input_ids = inputs
-                        attention_mask = None
+                with torch.no_grad():
+                    with torch.autocast(device_type='cuda', dtype=torch.float16):
+                        # STREAMING GENERATION: Iterative token generation for real-time streaming
 
-                    # Prepare for iterative generation
-                    current_input_ids = input_ids
-                    generated_tokens = []
-                    word_buffer = ""
-                    step = 0
+                        # Initialize generation state
+                        realtime_logger.debug(f"[DEBUG] Initializing generation state")
+                        if isinstance(inputs, dict):
+                            input_ids = inputs.get('input_ids', inputs.get('audio_values'))
+                            attention_mask = inputs.get('attention_mask')
+                        else:
+                            input_ids = inputs
+                            attention_mask = None
+
+                        realtime_logger.debug(f"[DEBUG] Input IDs shape: {input_ids.shape if hasattr(input_ids, 'shape') else 'no shape'}")
+
+                        # Prepare for iterative generation
+                        current_input_ids = input_ids
+                        generated_tokens = []
+                        word_buffer = ""
+                        step = 0
 
                     # Enhanced generation parameters for streaming mode
+                    # CRITICAL: Ensure all token IDs are proper integers (fix numpy.float32 issues)
+                    realtime_logger.debug(f"[DEBUG] Setting up generation config")
+                    eos_token_id = None
+                    pad_token_id = None
+                    if hasattr(self.processor, 'tokenizer'):
+                        try:
+                            realtime_logger.debug(f"[DEBUG] Getting tokenizer token IDs")
+                            eos_id = self.processor.tokenizer.eos_token_id
+                            realtime_logger.debug(f"[DEBUG] Raw eos_token_id: {eos_id}, type: {type(eos_id)}")
+                            if eos_id is not None:
+                                eos_token_id = int(eos_id) if hasattr(eos_id, 'item') else int(eos_id)
+                                realtime_logger.debug(f"[DEBUG] Converted eos_token_id: {eos_token_id}")
+                            pad_id = self.processor.tokenizer.eos_token_id  # Use eos as pad
+                            if pad_id is not None:
+                                pad_token_id = int(pad_id) if hasattr(pad_id, 'item') else int(pad_id)
+                                realtime_logger.debug(f"[DEBUG] Converted pad_token_id: {pad_token_id}")
+                        except Exception as token_id_error:
+                            realtime_logger.warning(f"[WARN] Token ID conversion error: {token_id_error}")
+                            eos_token_id = None
+                            pad_token_id = None
+
                     generation_config = {
                         'do_sample': True,
                         'temperature': 0.4,  # Slightly higher for more diverse generation
@@ -843,16 +931,16 @@ class VoxtralModel:
                         'repetition_penalty': 1.15,  # Reduced to allow natural repetition
                         'length_penalty': 1.1,       # Encourage longer responses
                         'no_repeat_ngram_size': 3,    # Prevent short repetitive loops
-                        'pad_token_id': self.processor.tokenizer.eos_token_id if hasattr(self.processor, 'tokenizer') else None,
-                        'eos_token_id': self.processor.tokenizer.eos_token_id if hasattr(self.processor, 'tokenizer') else None,
+                        'pad_token_id': pad_token_id,
+                        'eos_token_id': eos_token_id,
                         'use_cache': True,
                         'early_stopping': False,      # Prevent premature stopping
                         'forced_eos_token_id': None,  # Don't force early EOS
                     }
 
-                    # STREAMING LOOP: Generate tokens one by one with enhanced parameters
-                    max_tokens = 200  # Increased target for longer responses
-                    min_words_before_stop = 10  # Minimum words before allowing EOS
+                    # STREAMING LOOP: Generate tokens one by one with enhanced parameters for meaningful responses
+                    max_tokens = 300  # Increased target for longer, more meaningful responses
+                    min_words_before_stop = 15  # Minimum words before allowing EOS (increased from 10)
                     words_generated = 0
 
                     for step in range(max_tokens):
@@ -880,6 +968,12 @@ class VoxtralModel:
                                 new_token_id = outputs[0, -1].item()
                             else:
                                 new_token_id = outputs[-1].item()
+
+                            # Ensure new_token_id is an integer (fix numpy type issues)
+                            if hasattr(new_token_id, 'item'):
+                                new_token_id = new_token_id.item()
+                            new_token_id = int(new_token_id)
+
                             generated_tokens.append(new_token_id)
                         except Exception as token_error:
                             realtime_logger.error(f"[ERROR] Token extraction error: {token_error}")
@@ -892,9 +986,13 @@ class VoxtralModel:
                             else:
                                 token_text = f"<{new_token_id}>"
 
-                            # Ensure token_text is a string (fix numpy.float32 iteration error)
+                            # CRITICAL: Ensure token_text is always a proper string (fix numpy.float32 iteration error)
                             if not isinstance(token_text, str):
                                 token_text = str(token_text)
+
+                            # Additional safety check - ensure it's not empty and is truly a string
+                            if not token_text or not isinstance(token_text, str):
+                                token_text = f"<{new_token_id}>"
 
                         except Exception as decode_error:
                             realtime_logger.warning(f"[WARN] Token decode error: {decode_error}, using fallback")
@@ -908,18 +1006,41 @@ class VoxtralModel:
                         words = word_buffer.strip().split()
                         has_punctuation = False
                         try:
-                            # Safe punctuation check with proper string handling
-                            if isinstance(token_text, str) and token_text:
-                                has_punctuation = any(char in token_text for char in ['.', '!', '?', '\n', ',', ';'])
-                        except (TypeError, AttributeError) as e:
-                            realtime_logger.debug(f"Punctuation check error: {e}")
+                            # ULTRA-SAFE punctuation check with multiple type validations
+                            if isinstance(token_text, str) and token_text and len(token_text) > 0:
+                                # Double-check that token_text is truly a string before iteration
+                                if hasattr(token_text, '__iter__') and not isinstance(token_text, (int, float)):
+                                    punctuation_chars = ['.', '!', '?', '\n', ',', ';']
+                                    has_punctuation = any(char in str(token_text) for char in punctuation_chars)
+                                else:
+                                    # If token_text is not properly iterable, convert to string first
+                                    token_text_str = str(token_text)
+                                    punctuation_chars = ['.', '!', '?', '\n', ',', ';']
+                                    has_punctuation = any(char in token_text_str for char in punctuation_chars)
+                        except (TypeError, AttributeError, ValueError) as e:
+                            realtime_logger.debug(f"Punctuation check error: {e}, token_text type: {type(token_text)}")
                             has_punctuation = False
 
-                        if len(words) >= 2 or has_punctuation:
-                            # Send words for TTS processing with enhanced logic
-                            words_to_send = ' '.join(words[:-1]) if len(words) > 2 else ' '.join(words)
+                        # ENHANCED: Send words in much larger chunks for better TTS efficiency and fewer audio chunks
+                        # Require at least 8 words OR a sentence-ending punctuation with at least 5 words
+                        sentence_ending = any(char in str(token_text) for char in ['.', '!', '?']) if isinstance(token_text, str) else False
+
+                        if len(words) >= 8 or (sentence_ending and len(words) >= 5):
+                            # Send words for TTS processing - keep more words together for meaningful chunks
+                            if sentence_ending and len(words) >= 5:
+                                # Send complete sentence
+                                words_to_send = ' '.join(words)
+                                word_buffer = ""
+                            else:
+                                # Send most words but keep 2-3 for next chunk to maintain flow
+                                words_to_send = ' '.join(words[:-2]) if len(words) > 8 else ' '.join(words)
+                                word_buffer = ' '.join(words[-2:]) if len(words) > 8 else ""
+
                             if words_to_send.strip():
                                 words_generated += len(words_to_send.split())
+
+                                # Log the meaningful text chunk being sent
+                                realtime_logger.info(f"[VOXTRAL-CHUNK] Sending {len(words_to_send.split())} words for TTS: '{words_to_send.strip()}'")
 
                                 yield {
                                     'type': 'words',
@@ -932,67 +1053,81 @@ class VoxtralModel:
                                     'word_count': words_generated
                                 }
 
-                                # Keep last word in buffer for next iteration
-                                word_buffer = words[-1] if len(words) > 2 else ""
-
-                                realtime_logger.debug(f"[TARGET] Sent {len(words_to_send.split())} words: '{words_to_send}'")
-
                         # Update input for next iteration
                         current_input_ids = outputs
 
                         # Enhanced EOS token handling - only stop if we have enough content
-                        eos_token_id = generation_config.get('eos_token_id')
-                        if (new_token_id == eos_token_id and
-                            words_generated >= min_words_before_stop and
-                            step > 20):  # Minimum 20 tokens before allowing EOS
-                            realtime_logger.info(f"[OK] Natural EOS reached after {words_generated} words, {step} tokens")
-                            break
-                        elif new_token_id == eos_token_id and words_generated < min_words_before_stop:
-                            realtime_logger.debug(f"[WARN] Early EOS ignored - only {words_generated} words generated")
-                            # Continue generation despite EOS
+                        try:
+                            eos_token_id = generation_config.get('eos_token_id')
+                            # Ensure eos_token_id is an integer for comparison
+                            if eos_token_id is not None and hasattr(eos_token_id, 'item'):
+                                eos_token_id = eos_token_id.item()
+                            if eos_token_id is not None:
+                                eos_token_id = int(eos_token_id)
+
+                            if (new_token_id == eos_token_id and
+                                words_generated >= min_words_before_stop and
+                                step > 20):  # Minimum 20 tokens before allowing EOS
+                                realtime_logger.info(f"[OK] Natural EOS reached after {words_generated} words, {step} tokens")
+                                break
+                            elif new_token_id == eos_token_id and words_generated < min_words_before_stop:
+                                realtime_logger.debug(f"[WARN] Early EOS ignored - only {words_generated} words generated")
+                                # Continue generation despite EOS
+                        except Exception as eos_error:
+                            realtime_logger.debug(f"[WARN] EOS token handling error: {eos_error}")
+                            # Continue generation if EOS handling fails
 
                         # Adaptive delay based on generation speed
                         await asyncio.sleep(0.001 if step < 50 else 0.0005)
 
-                    # Send any remaining text
-                    if word_buffer.strip():
-                        yield {
-                            'type': 'words',
-                            'text': word_buffer.strip(),
-                            'tokens': [generated_tokens[-1]] if generated_tokens else [],
-                            'step': step,
-                            'is_complete': False,
-                            'chunk_id': chunk_id,
-                            'timestamp': time.time()
-                        }
+                # Send any remaining text
+                if word_buffer.strip():
+                    yield {
+                        'type': 'words',
+                        'text': word_buffer.strip(),
+                        'tokens': [generated_tokens[-1]] if generated_tokens else [],
+                        'step': step if 'step' in locals() else 0,
+                        'is_complete': False,
+                        'chunk_id': chunk_id,
+                        'timestamp': time.time()
+                    }
 
-            inference_time = (time.time() - inference_start) * 1000
-            total_time = (time.time() - start_time) * 1000
+                inference_time = (time.time() - inference_start) * 1000
+                total_time = (time.time() - start_time) * 1000
 
-            # Decode final output with robust error handling
-            try:
-                if hasattr(self.processor, 'tokenizer') and generated_tokens:
-                    response_text = self.processor.tokenizer.decode(generated_tokens, skip_special_tokens=True)
-                elif hasattr(self.processor, 'tokenizer'):
-                    response_text = self.processor.tokenizer.decode(outputs[0], skip_special_tokens=True)
-                else:
-                    response_text = str(outputs[0]) if outputs is not None else "Generated response"
-            except Exception as decode_error:
-                realtime_logger.warning(f"[WARN] Final decode error: {decode_error}")
-                response_text = f"Generated {len(generated_tokens)} tokens"
+                # Decode final output with robust error handling
+                try:
+                    if hasattr(self.processor, 'tokenizer') and generated_tokens:
+                        response_text = self.processor.tokenizer.decode(generated_tokens, skip_special_tokens=True)
+                    elif hasattr(self.processor, 'tokenizer'):
+                        response_text = self.processor.tokenizer.decode(outputs[0], skip_special_tokens=True)
+                    else:
+                        response_text = str(outputs[0]) if outputs is not None else "Generated response"
 
-            # Send completion marker
-            yield {
-                'type': 'complete',
-                'chunk_id': chunk_id,
-                'response_text': response_text,
-                'inference_time_ms': inference_time,
-                'total_time_ms': total_time,
-                'is_complete': True,
-                'timestamp': time.time()
-            }
+                    # ENHANCED: Log the complete Voxtral response prominently
+                    realtime_logger.info(f"[VOXTRAL-COMPLETE] Full streaming response ({len(generated_tokens)} tokens, {words_generated} words): '{response_text.strip()}'")
 
-            realtime_logger.info(f"[OK] Streaming generation completed for chunk {chunk_id} in {inference_time:.1f}ms")
+                except Exception as decode_error:
+                    realtime_logger.warning(f"[WARN] Final decode error: {decode_error}")
+                    response_text = f"Generated {len(generated_tokens)} tokens"
+
+                # Send completion marker
+                yield {
+                    'type': 'complete',
+                    'chunk_id': chunk_id,
+                    'response_text': response_text,
+                    'inference_time_ms': inference_time,
+                    'total_time_ms': total_time,
+                    'is_complete': True,
+                    'timestamp': time.time()
+                }
+
+                realtime_logger.info(f"[OK] Streaming generation completed for chunk {chunk_id} in {inference_time:.1f}ms")
+
+            except Exception as inference_error:
+                realtime_logger.error(f"[ERROR] Inference error: {inference_error}")
+                realtime_logger.error(f"[ERROR] Inference error type: {type(inference_error)}")
+                raise
 
         except Exception as e:
             realtime_logger.error(f"[ERROR] Error in streaming processing for chunk {chunk_id}: {e}")

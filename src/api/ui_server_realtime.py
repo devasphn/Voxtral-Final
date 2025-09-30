@@ -1107,17 +1107,13 @@ async def home(request: Request):
 
                     log(`[AUDIO] Converting base64 audio for chunk ${chunkId} (${audioData.length} chars)`);
 
-                    // Convert base64 to blob with proper error handling
-                    const binaryString = atob(audioData);
-                    const bytes = new Uint8Array(binaryString.length);
-                    for (let i = 0; i < binaryString.length; i++) {
-                        bytes[i] = binaryString.charCodeAt(i);
-                    }
+                    // FIXED: Convert base64 to proper WAV format with headers
+                    const wavBuffer = createWAVFromBase64(audioData);
 
-                    log(`[AUDIO] Created audio buffer: ${bytes.length} bytes`);
+                    log(`[AUDIO] Created WAV audio buffer: ${wavBuffer.length} bytes`);
 
-                    // Create audio blob with explicit WAV headers
-                    const audioBlob = new Blob([bytes], { type: 'audio/wav' });
+                    // Create audio blob with correct WAV MIME type
+                    const audioBlob = new Blob([wavBuffer], { type: 'audio/wav' });
                     const audioUrl = URL.createObjectURL(audioBlob);
 
                     // Create audio element with enhanced configuration
@@ -1221,6 +1217,76 @@ async def home(request: Request):
             });
         }
 
+        // FIXED: Add proper WAV header creation function
+        function createWAVFromBase64(base64Data) {
+            try {
+                // Decode base64 to binary
+                const binaryString = atob(base64Data);
+                const audioData = new Uint8Array(binaryString.length);
+                for (let i = 0; i < binaryString.length; i++) {
+                    audioData[i] = binaryString.charCodeAt(i);
+                }
+
+                // Check if data already has WAV header (RIFF signature)
+                if (audioData.length >= 12 &&
+                    audioData[0] === 0x52 && audioData[1] === 0x49 &&
+                    audioData[2] === 0x46 && audioData[3] === 0x46) {
+                    // Already has WAV header
+                    log(`[AUDIO] Audio data already has WAV header`);
+                    return audioData;
+                }
+
+                // Create WAV header for raw PCM data (16kHz, 16-bit, mono)
+                const sampleRate = 16000;
+                const numChannels = 1;
+                const bitsPerSample = 16;
+                const byteRate = sampleRate * numChannels * bitsPerSample / 8;
+                const blockAlign = numChannels * bitsPerSample / 8;
+                const dataSize = audioData.length;
+                const fileSize = 36 + dataSize;
+
+                const wavHeader = new ArrayBuffer(44);
+                const view = new DataView(wavHeader);
+
+                // RIFF header
+                view.setUint32(0, 0x52494646, false); // "RIFF"
+                view.setUint32(4, fileSize, true);    // File size
+                view.setUint32(8, 0x57415645, false); // "WAVE"
+
+                // fmt chunk
+                view.setUint32(12, 0x666d7420, false); // "fmt "
+                view.setUint32(16, 16, true);          // Chunk size
+                view.setUint16(20, 1, true);           // Audio format (PCM)
+                view.setUint16(22, numChannels, true); // Number of channels
+                view.setUint32(24, sampleRate, true);  // Sample rate
+                view.setUint32(28, byteRate, true);    // Byte rate
+                view.setUint16(32, blockAlign, true);  // Block align
+                view.setUint16(34, bitsPerSample, true); // Bits per sample
+
+                // data chunk
+                view.setUint32(36, 0x64617461, false); // "data"
+                view.setUint32(40, dataSize, true);    // Data size
+
+                // Combine header and data
+                const wavFile = new Uint8Array(44 + dataSize);
+                wavFile.set(new Uint8Array(wavHeader), 0);
+                wavFile.set(audioData, 44);
+
+                log(`[AUDIO] Created WAV file with header: ${wavFile.length} bytes total (${dataSize} bytes audio + 44 bytes header)`);
+                return wavFile;
+
+            } catch (error) {
+                log(`[ERROR] Error creating WAV from base64: ${error}`);
+                // Fallback: return original data
+                const binaryString = atob(base64Data);
+                const audioData = new Uint8Array(binaryString.length);
+                for (let i = 0; i < binaryString.length; i++) {
+                    audioData[i] = binaryString.charCodeAt(i);
+                }
+                return audioData;
+            }
+        }
+
         function displayConversationMessage(data) {
             const conversationDiv = document.getElementById('conversation');
             const contentDiv = document.getElementById('conversationContent');
@@ -1317,20 +1383,66 @@ async def home(request: Request):
                 await audioContext.resume();
                 log(`Audio context created with sample rate: ${audioContext.sampleRate}`);
                 
-                audioWorkletNode = audioContext.createScriptProcessor(CHUNK_SIZE, 1, 1);
-                const source = audioContext.createMediaStreamSource(mediaStream);
-                
-                source.connect(audioWorkletNode);
-                audioWorkletNode.connect(audioContext.destination);
-                
-                let audioBuffer = [];
-                let lastChunkTime = Date.now();
+                // FIXED: Use modern AudioWorklet instead of deprecated ScriptProcessor
+                try {
+                    // Try to use AudioWorklet (modern approach)
+                    await audioContext.audioWorklet.addModule('data:text/javascript;base64,' + btoa(`
+                        class AudioProcessor extends AudioWorkletProcessor {
+                            process(inputs, outputs, parameters) {
+                                const input = inputs[0];
+                                if (input.length > 0) {
+                                    const inputData = input[0];
+                                    this.port.postMessage({
+                                        type: 'audiodata',
+                                        data: inputData
+                                    });
+                                }
+                                return true;
+                            }
+                        }
+                        registerProcessor('audio-processor', AudioProcessor);
+                    `));
 
-                audioWorkletNode.onaudioprocess = (event) => {
+                    audioWorkletNode = new AudioWorkletNode(audioContext, 'audio-processor');
+                    const source = audioContext.createMediaStreamSource(mediaStream);
+                    source.connect(audioWorkletNode);
+
+                    let audioBuffer = [];
+                    let lastChunkTime = Date.now();
+
+                    audioWorkletNode.port.onmessage = (event) => {
+                        if (event.data.type === 'audiodata') {
+                            const inputData = event.data.data;
+                            processAudioData(inputData);
+                        }
+                    };
+
+                    log('[AUDIO] Using modern AudioWorklet for audio processing');
+
+                } catch (workletError) {
+                    // Fallback to ScriptProcessor for older browsers
+                    log(`[WARN] AudioWorklet not supported, falling back to ScriptProcessor: ${workletError.message}`);
+
+                    audioWorkletNode = audioContext.createScriptProcessor(CHUNK_SIZE, 1, 1);
+                    const source = audioContext.createMediaStreamSource(mediaStream);
+
+                    source.connect(audioWorkletNode);
+                    audioWorkletNode.connect(audioContext.destination);
+
+                    let audioBuffer = [];
+                    let lastChunkTime = Date.now();
+
+                    audioWorkletNode.onaudioprocess = (event) => {
+                        const inputBuffer = event.inputBuffer;
+                        const inputData = inputBuffer.getChannelData(0);
+                        processAudioData(inputData);
+                    };
+
+                    log('[AUDIO] Using fallback ScriptProcessor for audio processing');
+                }
+
+                function processAudioData(inputData) {
                     if (!isStreaming || pendingResponse) return;
-
-                    const inputBuffer = event.inputBuffer;
-                    const inputData = inputBuffer.getChannelData(0);
 
                     // Update volume meter and VAD indicator
                     updateVolumeMeter(inputData);
@@ -1916,6 +2028,10 @@ async def handle_conversational_audio_chunk(websocket: WebSocket, data: dict, cl
                         words_text = stream_chunk.content['text']
                         full_response += " " + words_text
                         words_sent_for_tts.append(words_text)
+
+                        # Enhanced logging for visibility
+                        streaming_logger.info(f"[STREAMING] Received words from Voxtral (seq {stream_chunk.content['sequence_number']}): '{words_text}'")
+                        streaming_logger.info(f"[STREAMING] Full response so far: '{full_response.strip()}'")
 
                         # Send words to client immediately
                         await websocket.send_text(json.dumps({

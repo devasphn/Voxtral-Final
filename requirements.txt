@@ -15,13 +15,13 @@ tokenizers>=0.15.0
 # Mistral Common with Audio Support (OFFICIAL)
 mistral-common[audio]>=1.8.1
 
-# Kokoro TTS (lightweight alternative to Orpheus)
-kokoro==0.7.4
+# Kokoro TTS (lightweight alternative to Orpheus) - Updated for compatibility
+kokoro>=0.9.0
 
-# Audio Processing
+# Audio Processing - Updated numpy for compatibility with thinc
 librosa>=0.10.1
 soundfile>=0.12.1
-numpy>=1.24.0,<2.0.0
+numpy>=2.0.0,<3.0.0
 scipy>=1.11.0
 
 # Web Framework - Production versions
