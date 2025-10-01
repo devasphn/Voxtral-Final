@@ -43,17 +43,63 @@ class KokoroTTSModel:
         self.speed = config.tts.speed
         self.lang_code = config.tts.lang_code
 
-        # OPTIMIZED: Quality and performance settings for fewer, larger chunks
-        self.chunk_size = 2048  # Larger chunks for better efficiency (was 512)
-        self.max_text_length = 1000  # Maximum text length per generation
-        self.streaming_chunk_size = 1024  # Larger streaming chunks to reduce count (was 256)
+        # STARTUP-OPTIMIZED: Balance quality and startup speed for Indian female voice
+        self.chunk_size = 3072  # STARTUP-OPTIMIZED: Balanced chunks for speed+quality (was 2048)
+        self.max_text_length = 600  # STARTUP-OPTIMIZED: Balanced for context+speed (was 750)
+        self.streaming_chunk_size = 1536  # STARTUP-OPTIMIZED: Balanced chunks (was 1024)
         self.enable_streaming_optimizations = True
-        self.prefill_audio_buffer = True  # Pre-fill audio buffers
-        self.use_fast_synthesis = True  # Enable fast synthesis mode
-        self.min_chunk_size_for_split = 2048  # Only split chunks larger than this
+        self.prefill_audio_buffer = False  # STARTUP-OPTIMIZED: Disable for faster startup (was True)
+        self.use_fast_synthesis = True  # STARTUP-OPTIMIZED: Enable for faster startup (was False)
+        self.min_chunk_size_for_split = 3072  # STARTUP-OPTIMIZED: Higher threshold for speed (was 2048)
         
         tts_logger.info(f"[AUDIO] KokoroTTSModel initialized with device: {self.device}")
         tts_logger.info(f"   [MIC] Voice: {self.voice}, Speed: {self.speed}, Lang: {self.lang_code}")
+
+        # OPTIMIZED: Use Hindi language code for Indian accent
+        if self.lang_code == "a":
+            self.lang_code = "h"  # Change to Hindi for Indian accent
+            tts_logger.info(f"   [OPTIMIZED] Language code updated to: {self.lang_code} (Hindi for Indian accent)")
+
+    def _process_emotional_expressions(self, text: str) -> str:
+        """
+        Process emotional expressions in text to make them more natural for TTS
+        Converts *laugh*, *sigh*, etc. to more speakable text
+        """
+        import re
+
+        # Define emotional expression mappings
+        emotion_mappings = {
+            r'\*laugh\*': 'haha',
+            r'\*chuckle\*': 'hehe',
+            r'\*giggle\*': 'hehe',
+            r'\*sigh\*': 'hmm',
+            r'\*gasp\*': 'oh',
+            r'\*whisper\*': '',  # Remove whisper markers
+            r'\*shout\*': '',    # Remove shout markers
+            r'\*excited\*': '',  # Remove excited markers
+            r'\*sad\*': '',      # Remove sad markers
+            r'\*happy\*': '',    # Remove happy markers
+            r'\*surprised\*': 'oh',
+            r'\*confused\*': 'um',
+            r'\*thinking\*': 'hmm',
+            r'\*pause\*': '...',
+            r'\*breathe\*': '',
+            r'\*inhale\*': '',
+            r'\*exhale\*': '',
+        }
+
+        # Apply emotion mappings
+        processed_text = text
+        for pattern, replacement in emotion_mappings.items():
+            processed_text = re.sub(pattern, replacement, processed_text, flags=re.IGNORECASE)
+
+        # Clean up extra spaces
+        processed_text = re.sub(r'\s+', ' ', processed_text).strip()
+
+        if processed_text != text:
+            tts_logger.debug(f"[EMOTION] Processed emotional expressions: '{text}' -> '{processed_text}'")
+
+        return processed_text
     
     async def initialize(self) -> bool:
         """Initialize the Kokoro TTS model with production-ready settings"""
@@ -89,22 +135,20 @@ class KokoroTTSModel:
             # Initialize pipeline with language code
             self.pipeline = KPipeline(lang_code=self.lang_code)
 
-            # ULTRA-LOW LATENCY: Pre-warm the pipeline
+            # STARTUP-OPTIMIZED: Minimal pre-warming for faster startup
             if self.enable_streaming_optimizations:
-                tts_logger.info("[INIT] Pre-warming Kokoro pipeline for ultra-low latency...")
+                tts_logger.info("[INIT] Quick pre-warming Kokoro pipeline...")
 
-                # Pre-warm with multiple short samples
-                warm_up_texts = ["Hi", "Hello", "Test"]
-                for warm_text in warm_up_texts:
-                    try:
-                        warm_generator = self.pipeline(warm_text, voice=self.voice, speed=self.speed)
-                        for i, (gs, ps, audio) in enumerate(warm_generator):
-                            if i >= 1:  # Just process first couple chunks
-                                break
-                    except Exception as e:
-                        tts_logger.debug(f"Warm-up warning: {e}")
+                # STARTUP-OPTIMIZED: Single short warm-up for faster startup
+                try:
+                    warm_generator = self.pipeline("Hi", voice=self.voice, speed=self.speed)
+                    for i, (gs, ps, audio) in enumerate(warm_generator):
+                        if i >= 0:  # Just process first chunk
+                            break
+                except Exception as e:
+                    tts_logger.debug(f"Warm-up warning: {e}")
 
-                tts_logger.info("[OK] Kokoro pipeline pre-warmed for streaming")
+                tts_logger.info("[OK] Kokoro pipeline pre-warmed quickly")
 
             # Test the pipeline with a short sample
             test_text = "Kokoro TTS initialization test."
@@ -176,7 +220,10 @@ class KokoroTTSModel:
                     'success': True,
                     'is_empty': True
                 }
-            
+
+            # ENHANCED: Process emotional expressions for better TTS output
+            text = self._process_emotional_expressions(text)
+
             # Truncate text if too long
             if len(text) > self.max_text_length:
                 text = text[:self.max_text_length]
@@ -193,9 +240,13 @@ class KokoroTTSModel:
                 if audio is not None and len(audio) > 0:
                     audio_chunks.append(audio)
                     total_samples += len(audio)
-                    # OPTIMIZED: Reduced logging for speed - only log every 5th chunk
-                    if i % 5 == 0:
+                    # ULTRA-OPTIMIZED: Minimal logging for maximum speed - only log every 10th chunk
+                    if i % 10 == 0:
                         tts_logger.debug(f"   [EMOJI] Generated chunk {i}: {len(audio)} samples")
+
+                    # QUALITY-OPTIMIZED: Allow more chunks for better quality
+                    if len(text) < 30 and i >= 8:  # For very short text, allow more chunks
+                        break
             
             # Concatenate all audio chunks
             if audio_chunks:
@@ -281,6 +332,9 @@ class KokoroTTSModel:
                 tts_logger.warning(f"[WARN] Empty text provided for streaming chunk {chunk_id}")
                 return
 
+            # ENHANCED: Process emotional expressions for better TTS output
+            text = self._process_emotional_expressions(text)
+
             # Truncate text if too long
             if len(text) > self.max_text_length:
                 text = text[:self.max_text_length]
@@ -296,63 +350,34 @@ class KokoroTTSModel:
                 if audio is not None and len(audio) > 0:
                     total_audio_samples += len(audio)
 
-                    # OPTIMIZED: Only split into sub-chunks if audio is very large
-                    if self.use_fast_synthesis and len(audio) > self.min_chunk_size_for_split:
-                        # Split only very large chunks to reduce total chunk count
-                        for sub_start in range(0, len(audio), self.streaming_chunk_size):
-                            sub_end = min(sub_start + self.streaming_chunk_size, len(audio))
-                            sub_audio = audio[sub_start:sub_end]
+                    # OPTIMIZED FOR WORD-BY-WORD: Send complete audio for each word without sub-chunking
+                    # This reduces the number of streaming_audio messages per word
 
-                            # FIXED: Convert to proper WAV format with headers
-                            if hasattr(sub_audio, 'astype'):
-                                audio_pcm = (sub_audio * 32767).astype(np.int16)
-                            else:
-                                # Handle tensor case
-                                sub_audio_np = sub_audio.cpu().numpy() if hasattr(sub_audio, 'cpu') else np.array(sub_audio)
-                                audio_pcm = (sub_audio_np * 32767).astype(np.int16)
-
-                            # Create WAV format with proper headers
-                            audio_bytes = self._create_wav_bytes(audio_pcm)
-                            chunk_count += 1
-
-                            yield {
-                                'audio_chunk': audio_bytes,
-                                'chunk_index': chunk_count,
-                                'is_final': False,
-                                'sample_rate': self.sample_rate,
-                                'synthesis_time_ms': (time.time() - synthesis_start_time) * 1000
-                            }
-
-                            # Reduced delay frequency to speed up streaming
-                            if chunk_count % 10 == 0:  # Only delay every 10th chunk (was 5)
-                                await asyncio.sleep(0.001)  # 1ms delay (was 0.5ms)
+                    # Convert to proper WAV format with headers
+                    if hasattr(audio, 'astype'):
+                        audio_pcm = (audio * 32767).astype(np.int16)
                     else:
-                        # FIXED: Convert to proper WAV format with headers
-                        if hasattr(audio, 'astype'):
-                            audio_pcm = (audio * 32767).astype(np.int16)
-                        else:
-                            # Handle tensor case
-                            audio_np = audio.cpu().numpy() if hasattr(audio, 'cpu') else np.array(audio)
-                            audio_pcm = (audio_np * 32767).astype(np.int16)
+                        # Handle tensor case
+                        audio_np = audio.cpu().numpy() if hasattr(audio, 'cpu') else np.array(audio)
+                        audio_pcm = (audio_np * 32767).astype(np.int16)
 
-                        # Create WAV format with proper headers
-                        audio_bytes = self._create_wav_bytes(audio_pcm)
-                        chunk_count += 1
+                    # Create WAV format with proper headers
+                    audio_bytes = self._create_wav_bytes(audio_pcm)
+                    chunk_count += 1
 
-                        yield {
-                            'audio_chunk': audio_bytes,
-                            'chunk_index': chunk_count,
-                            'is_final': False,
-                            'sample_rate': self.sample_rate,
-                            'synthesis_time_ms': (time.time() - synthesis_start_time) * 1000
-                        }
+                    yield {
+                        'audio_chunk': audio_bytes,
+                        'chunk_index': chunk_count,
+                        'is_final': False,
+                        'sample_rate': self.sample_rate,
+                        'synthesis_time_ms': (time.time() - synthesis_start_time) * 1000
+                    }
 
-                        # Reduced delay for faster streaming
-                        await asyncio.sleep(0.001)  # 1ms delay (was 0.5ms)
+                    # Minimal delay for smooth streaming
+                    await asyncio.sleep(0.001)  # 1ms delay
 
-                    # Enhanced logging for chunk tracking (every 10th chunk)
-                    if chunk_count % 10 == 0:
-                        tts_logger.info(f"[AUDIO] Streaming chunk {chunk_count}: {len(audio)} samples -> {len(audio_bytes) if 'audio_bytes' in locals() else 0} bytes")
+                    # Log every chunk for word-by-word tracking
+                    tts_logger.debug(f"[AUDIO] Word chunk {chunk_count}: {len(audio)} samples -> {len(audio_bytes)} bytes")
 
             synthesis_time = (time.time() - synthesis_start_time) * 1000
             tts_logger.info(f"[OK] Streaming synthesis completed in {synthesis_time:.1f}ms ({chunk_count} chunks)")

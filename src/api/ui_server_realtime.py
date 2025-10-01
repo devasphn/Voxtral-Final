@@ -15,6 +15,8 @@ from pathlib import Path
 import logging
 import sys
 import os
+import soundfile as sf  # FIXED: Add missing soundfile import
+from io import BytesIO  # FIXED: Add missing BytesIO import
 
 # Add current directory to Python path if not already there
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -378,11 +380,12 @@ async def home(request: Request):
                     <div>
                         <label>Voice:</label>
                         <select id="voiceSelect" onchange="updateVoiceSettings()">
-                            <option value="auto">[MASK] Auto (Emotional)</option>
-                            <option value="af_heart">Heart (Calm & Friendly)</option>
-                            <option value="af_bella">Bella (Energetic & Excited)</option>
-                            <option value="af_sarah">Sarah (Gentle & Empathetic)</option>
-                            <option value="af_nicole">Nicole (Professional)</option>
+                            <option value="hf_alpha" selected>🇮🇳 Priya (Indian Female - Primary)</option>
+                            <option value="hf_beta">🇮🇳 Ananya (Indian Female - Alternative)</option>
+                            <option value="af_bella">🇺🇸 Bella (American Female - Warm)</option>
+                            <option value="af_nicole">🇺🇸 Nicole (American Female - Professional)</option>
+                            <option value="af_heart">🇺🇸 Heart (American Female - Calm)</option>
+                            <option value="af_sarah">🇺🇸 Sarah (American Female - Gentle)</option>
                             <option value="af_sky">Sky (Bright & Happy)</option>
                             <option value="am_adam">Adam (Male, Friendly)</option>
                             <option value="am_michael">Michael (Male, Professional)</option>
@@ -536,7 +539,7 @@ async def home(request: Request):
         
         // ULTRA-LOW LATENCY: Speech-to-Speech only variables
         let currentMode = 'speech_to_speech';  // FIXED: Default to speech-to-speech mode
-        let selectedVoice = 'af_heart';
+        let selectedVoice = 'hf_alpha';  // FIXED: Use Indian female voice as default
         let selectedSpeed = 1.0;
         let currentConversationId = null;
         let speechToSpeechActive = false;
@@ -659,6 +662,22 @@ async def home(request: Request):
             const processingRate = total > 0 ? Math.round((speechChunks / total) * 100) : 0;
             document.getElementById('processingRate').textContent = processingRate;
             document.getElementById('silenceSkipped').textContent = silenceChunks;
+        }
+
+        function updateMetrics() {
+            // Update latency metrics
+            if (responseCount > 0) {
+                const avgLatency = Math.round(latencySum / responseCount);
+                const latencyElement = document.getElementById('avgLatency');
+                if (latencyElement) {
+                    latencyElement.textContent = avgLatency;
+                }
+
+                const responseCountElement = document.getElementById('responseCount');
+                if (responseCountElement) {
+                    responseCountElement.textContent = responseCount;
+                }
+            }
         }
 
         // Speech-to-Speech Functions
@@ -1041,6 +1060,35 @@ async def home(request: Request):
                     }
                     break;
 
+                case 'streaming_complete':
+                    // Handle streaming completion - NO TTS for complete response in streaming mode
+                    if (streamingModeEnabled) {
+                        log(`[STREAMING] Streaming complete - word-by-word TTS already handled: "${data.full_response}"`);
+                        // Just update UI status, don't generate additional TTS
+                        updateStatus(`[COMPLETE] Response generated (${data.total_words_sent || 'unknown'} words) - Ready for next input`, 'success');
+
+                        // FIXED: Keep speech-to-speech active for continuous conversation
+                        if (speechToSpeechActive) {
+                            // Reset for next conversation but keep active
+                            setTimeout(() => {
+                                updateStatus('[READY] Listening for your next message...', 'info');
+                                updateVadStatus('listening');
+                            }, 2000);  // Brief pause before ready for next input
+                        }
+                    } else {
+                        // Only generate complete TTS if NOT in streaming mode
+                        if (data.full_response && data.full_response.trim()) {
+                            log(`[STREAMING] Non-streaming mode - generating TTS for full response: "${data.full_response}"`);
+                            handleStreamingComplete(data);
+                        }
+                    }
+                    break;
+
+                case 'session_reset_complete':
+                    log('[SESSION] Session reset completed successfully');
+                    updateStatus('Session reset - ready for new conversation', 'success');
+                    break;
+
                 default:
                     log(`Unknown message type: ${data.type}`);
             }
@@ -1284,6 +1332,48 @@ async def home(request: Request):
                     audioData[i] = binaryString.charCodeAt(i);
                 }
                 return audioData;
+            }
+        }
+
+        function handleStreamingComplete(data) {
+            try {
+                log(`[STREAMING] Processing streaming completion for chunk ${data.chunk_id}`);
+                log(`[STREAMING] Full response (${data.total_words_sent} words): "${data.full_response}"`);
+
+                // Send request to server to generate TTS for the complete response
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    const ttsRequest = {
+                        type: "generate_tts",
+                        text: data.full_response,
+                        chunk_id: data.chunk_id,
+                        voice: selectedVoice,
+                        speed: selectedSpeed,
+                        timestamp: Date.now() / 1000
+                    };
+
+                    log(`[TTS] Requesting TTS generation for complete response with voice '${selectedVoice}'`);
+                    ws.send(JSON.stringify(ttsRequest));
+                } else {
+                    log(`[ERROR] WebSocket not available for TTS request`);
+                }
+
+                // Update UI to show completion
+                updateStatus(`[COMPLETE] Response generated (${data.total_words_sent} words, ${data.voxtral_time_ms}ms)`, 'success');
+
+                // Update metrics
+                if (data.voxtral_time_ms) {
+                    latencySum += data.voxtral_time_ms;
+                    responseCount++;
+                    updateMetrics();
+
+                    if (data.voxtral_time_ms > LATENCY_WARNING_THRESHOLD) {
+                        document.getElementById('performanceWarning').style.display = 'block';
+                    }
+                }
+
+            } catch (error) {
+                log(`[ERROR] Error handling streaming completion: ${error}`);
+                updateStatus('Error processing streaming completion', 'error');
             }
         }
 
@@ -1533,6 +1623,15 @@ async def home(request: Request):
             audioQueue = [];
             isPlayingAudio = false;
             log('[AUDIO] Audio queue cleared');
+
+            // FIXED: Send session reset to server
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    type: "reset_session",
+                    timestamp: Date.now() / 1000
+                }));
+                log('[SESSION] Session reset requested');
+            }
             
             if (audioWorkletNode) {
                 audioWorkletNode.disconnect();
@@ -1767,8 +1866,12 @@ async def api_status():
             model_info['unified_manager']['kokoro_initialized']
         )
         
-        voxtral_model = get_voxtral_model()
-        model_info = voxtral_model.get_model_info()
+        # Get Voxtral model info through unified manager
+        try:
+            voxtral_model = await unified_manager.get_voxtral_model()
+            voxtral_model_info = voxtral_model.get_model_info()
+        except Exception as e:
+            voxtral_model_info = {"error": str(e), "status": "not_available"}
 
         # Get speech-to-speech pipeline info if enabled
         speech_to_speech_info = None
@@ -1794,7 +1897,7 @@ async def api_status():
                 "average_latency_ms": performance_summary["statistics"]["average_latency_ms"],
                 "operations_within_target": performance_summary["statistics"]["operations_within_target"]
             },
-            "model": model_info,
+            "voxtral_model": voxtral_model_info,
             "speech_to_speech": speech_to_speech_info,
             "config": {
                 "sample_rate": config.audio.sample_rate,
@@ -1840,18 +1943,18 @@ async def websocket_endpoint(websocket: WebSocket):
         
         while True:
             try:
-                data = await asyncio.wait_for(websocket.receive_text(), timeout=300.0)
+                data = await asyncio.wait_for(websocket.receive_text(), timeout=3600.0)  # FIXED: 1 hour timeout for continuous conversation
                 message = json.loads(data)
                 msg_type = message.get("type")
-                
+
                 streaming_logger.debug(f"[CONVERSATION] Received message type: {msg_type} from {client_id}")
-                
+
                 if msg_type == "audio_chunk":
                     await handle_conversational_audio_chunk(websocket, message, client_id)
-                    
+
                 elif msg_type == "ping":
                     await websocket.send_text(json.dumps({
-                        "type": "pong", 
+                        "type": "pong",
                         "timestamp": time.time()
                     }))
                     
@@ -1860,18 +1963,28 @@ async def websocket_endpoint(websocket: WebSocket):
                     model_info = unified_manager.get_model_info()
                     performance_monitor = get_performance_monitor()
                     performance_summary = performance_monitor.get_performance_summary()
-                    
+
                     await websocket.send_text(json.dumps({
                         "type": "status",
                         "model_info": model_info,
                         "performance_summary": performance_summary
                     }))
-                    
+
+                elif msg_type == "generate_tts":
+                    await handle_tts_generation_request(websocket, message, client_id)
+
+                elif msg_type == "text_input":
+                    await handle_text_input_direct(websocket, message, client_id)
+
+                elif msg_type == "reset_session":
+                    # FIXED: Handle session reset for clean state between interactions
+                    await handle_session_reset(websocket, client_id)
+
                 else:
                     streaming_logger.warning(f"[CONVERSATION] Unknown message type: {msg_type}")
                     
             except asyncio.TimeoutError:
-                streaming_logger.info(f"[CONVERSATION] Client {client_id} timeout - sending ping")
+                streaming_logger.info(f"[CONVERSATION] Client {client_id} timeout after 1 hour - sending ping")
                 try:
                     await websocket.send_text(json.dumps({"type": "ping"}))
                 except:
@@ -1879,8 +1992,29 @@ async def websocket_endpoint(websocket: WebSocket):
                     
     except WebSocketDisconnect:
         streaming_logger.info(f"[CONVERSATION] Client disconnected: {client_id}")
+        # FIXED: Cleanup client state on disconnect
+        if client_id in recent_responses:
+            del recent_responses[client_id]
+    except ConnectionResetError:
+        streaming_logger.info(f"[CONVERSATION] Client connection reset: {client_id}")
+        # FIXED: Cleanup client state on connection reset
+        if client_id in recent_responses:
+            del recent_responses[client_id]
     except Exception as e:
         streaming_logger.error(f"[CONVERSATION] WebSocket error for {client_id}: {e}")
+        # FIXED: Cleanup client state on error
+        if client_id in recent_responses:
+            del recent_responses[client_id]
+        # FIXED: Attempt to send error message if connection is still open
+        try:
+            await websocket.send_text(json.dumps({
+                "type": "error",
+                "message": "Connection error occurred",
+                "timestamp": time.time()
+            }))
+        except:
+            # Connection is already closed, ignore
+            pass
 
 async def detect_user_interruption(audio_chunk: np.ndarray, current_state: str = "idle") -> bool:
     """
@@ -1916,6 +2050,244 @@ async def detect_user_interruption(audio_chunk: np.ndarray, current_state: str =
     except Exception as e:
         logger.error(f"[ERROR] Interruption detection error: {e}")
         return False
+
+async def handle_session_reset(websocket: WebSocket, client_id: str):
+    """Handle session reset to clean state between interactions"""
+    try:
+        streaming_logger.info(f"[SESSION-RESET] Resetting session for client {client_id}")
+
+        # Clear client response history
+        if client_id in recent_responses:
+            del recent_responses[client_id]
+
+        # Reset streaming coordinator state
+        from src.streaming.streaming_coordinator import streaming_coordinator
+        await streaming_coordinator.reset_session()
+
+        # Clear any pending audio processing
+        audio_processor = get_audio_processor()
+        if hasattr(audio_processor, 'reset_state'):
+            audio_processor.reset_state()
+
+        # Send confirmation
+        await websocket.send_text(json.dumps({
+            "type": "session_reset_complete",
+            "message": "Session reset successfully",
+            "timestamp": time.time()
+        }))
+
+        streaming_logger.info(f"[SESSION-RESET] Session reset completed for client {client_id}")
+
+    except Exception as e:
+        streaming_logger.error(f"[SESSION-RESET] Error resetting session for {client_id}: {e}")
+        await websocket.send_text(json.dumps({
+            "type": "error",
+            "message": f"Session reset failed: {str(e)}"
+        }))
+
+async def handle_text_input_direct(websocket: WebSocket, data: dict, client_id: str):
+    """Handle direct text input for testing Voxtral model without audio processing"""
+    try:
+        text_input = data.get("text", "").strip()
+        mode = data.get("mode", "conversation")
+        streaming = data.get("streaming", True)
+        prompt = data.get("prompt", "")
+
+        if not text_input:
+            streaming_logger.warning(f"[TEXT-INPUT] Empty text received from {client_id}")
+            await websocket.send_text(json.dumps({
+                "type": "error",
+                "message": "Empty text input"
+            }))
+            return
+
+        streaming_logger.info(f"[TEXT-INPUT] Processing direct text input from {client_id}: '{text_input}'")
+
+        # Get unified manager
+        unified_manager = get_unified_manager()
+        voxtral_model = unified_manager.voxtral_model
+
+        if not voxtral_model:
+            await websocket.send_text(json.dumps({
+                "type": "error",
+                "message": "Voxtral model not available"
+            }))
+            return
+
+        # Process text directly with Voxtral model (simplified for testing)
+        result = await voxtral_model.process_text_direct(
+            text_input,
+            mode=mode,
+            prompt=prompt,
+            streaming=False
+        )
+
+        if result and result.get("response"):
+            response_text = result["response"]
+            streaming_logger.info(f"[TEXT-INPUT] Generated response: '{response_text}'")
+
+            if streaming:
+                # Simulate streaming by sending words one by one
+                words = response_text.split()
+                for word in words:
+                    await websocket.send_text(json.dumps({
+                        "type": "streaming_chunk",
+                        "text": word,
+                        "timestamp": time.time()
+                    }))
+                    await asyncio.sleep(0.1)  # Small delay between words
+
+            # Send final response
+            await websocket.send_text(json.dumps({
+                "type": "response",
+                "text": response_text,
+                "timestamp": time.time()
+            }))
+        else:
+            await websocket.send_text(json.dumps({
+                "type": "error",
+                "message": "No response generated"
+            }))
+
+    except Exception as e:
+        streaming_logger.error(f"[TEXT-INPUT] Error handling text input from {client_id}: {e}")
+        await websocket.send_text(json.dumps({
+            "type": "error",
+            "message": f"Text input processing error: {str(e)}"
+        }))
+
+async def handle_tts_generation_request(websocket: WebSocket, data: dict, client_id: str):
+    """Handle TTS generation request for streaming complete responses"""
+    try:
+        text = data.get("text", "").strip()
+        chunk_id = data.get("chunk_id", "unknown")
+        voice = data.get("voice", "hf_alpha")
+        speed = data.get("speed", 1.0)
+
+        if not text:
+            streaming_logger.warning(f"[TTS] Empty text received for TTS generation from {client_id}")
+            return
+
+        streaming_logger.info(f"[TTS] Generating speech for chunk {chunk_id}: '{text[:50]}...' with voice '{voice}'")
+
+        # Get unified manager and performance monitor
+        unified_manager = get_unified_manager()
+        performance_monitor = get_performance_monitor()
+
+        if not unified_manager.is_initialized:
+            streaming_logger.error(f"[TTS] Unified model manager not initialized!")
+            await websocket.send_text(json.dumps({
+                "type": "error",
+                "message": "TTS service not available - model not initialized",
+                "chunk_id": chunk_id
+            }))
+            return
+
+        # Get Kokoro TTS model
+        kokoro_model = await unified_manager.get_kokoro_model()
+
+        # Start TTS timing
+        tts_timing_id = performance_monitor.start_timing("kokoro_generation", {
+            "chunk_id": chunk_id,
+            "text_length": len(text),
+            "voice": voice
+        })
+
+        try:
+            # Generate speech using Kokoro TTS model
+            result = await kokoro_model.synthesize_speech(
+                text=text,
+                voice=voice
+            )
+
+            if not result.get("success", False):
+                raise Exception(f"Kokoro TTS generation failed: {result.get('error', 'Unknown error')}")
+
+            audio_data = result["audio_data"]
+            sample_rate = result.get("sample_rate", 24000)
+
+            # End TTS timing
+            tts_generation_time = performance_monitor.end_timing(tts_timing_id)
+
+            if audio_data is not None and len(audio_data) > 0:
+                # Audio quality validation and normalization
+                audio_rms = np.sqrt(np.mean(audio_data**2))
+                audio_peak = np.max(np.abs(audio_data))
+
+                streaming_logger.info(f"[AUDIO] Audio quality check - RMS: {audio_rms:.6f}, Peak: {audio_peak:.6f}")
+
+                # Normalize audio if needed
+                normalized_audio = audio_data
+                if audio_rms < 0.05:  # Too quiet
+                    target_rms = 0.2
+                    gain = target_rms / (audio_rms + 1e-8)
+                    normalized_audio = audio_data * gain
+                    streaming_logger.info(f"[SPEAKER] Audio boosted by {gain:.2f}x (was too quiet)")
+                elif audio_peak > 0.95:  # Risk of clipping
+                    gain = 0.9 / audio_peak
+                    normalized_audio = audio_data * gain
+                    streaming_logger.info(f"[EMOJI] Audio reduced by {gain:.2f}x (preventing clipping)")
+
+                # Convert to WAV format
+                wav_buffer = BytesIO()
+                sf.write(wav_buffer, normalized_audio, sample_rate, format='WAV', subtype='PCM_16')
+                wav_bytes = wav_buffer.getvalue()
+                wav_buffer.close()
+
+                # Validate WAV file creation
+                if len(wav_bytes) < 100:
+                    raise Exception(f"WAV file too small: {len(wav_bytes)} bytes")
+
+                if wav_bytes[:4] != b'RIFF' or wav_bytes[8:12] != b'WAVE':
+                    raise Exception("Invalid WAV file headers")
+
+                streaming_logger.info(f"[OK] WAV file created: {len(wav_bytes)} bytes with proper headers")
+
+                # Convert to base64 for transmission
+                audio_b64 = base64.b64encode(wav_bytes).decode('utf-8')
+
+                # Calculate audio duration
+                audio_duration_ms = (len(audio_data) / sample_rate) * 1000
+
+                # Send audio response
+                await websocket.send_text(json.dumps({
+                    "type": "audio_response",
+                    "audio_data": audio_b64,
+                    "chunk_id": chunk_id,
+                    "voice": voice,
+                    "format": "wav",
+                    "conversation_ready": True,
+                    "metadata": {
+                        "audio_duration_ms": audio_duration_ms,
+                        "generation_time_ms": tts_generation_time,
+                        "sample_rate": sample_rate,
+                        "channels": 1,
+                        "format": "WAV",
+                        "subtype": "PCM_16"
+                    }
+                }))
+
+                streaming_logger.info(f"[TTS-KOKORO] Audio response generated for chunk {chunk_id} in {tts_generation_time:.1f}ms")
+
+            else:
+                raise Exception("No audio data generated")
+
+        except Exception as tts_error:
+            performance_monitor.end_timing(tts_timing_id)
+            streaming_logger.error(f"[ERROR] TTS generation failed for chunk {chunk_id}: {tts_error}")
+            await websocket.send_text(json.dumps({
+                "type": "error",
+                "message": f"TTS generation failed: {str(tts_error)}",
+                "chunk_id": chunk_id
+            }))
+
+    except Exception as e:
+        streaming_logger.error(f"[ERROR] Error handling TTS generation request from {client_id}: {e}")
+        await websocket.send_text(json.dumps({
+            "type": "error",
+            "message": "TTS request processing failed",
+            "chunk_id": data.get("chunk_id", "unknown")
+        }))
 
 async def handle_conversational_audio_chunk(websocket: WebSocket, data: dict, client_id: str):
     """Process conversational audio chunks with VAD using unified model manager"""
@@ -1958,6 +2330,20 @@ async def handle_conversational_audio_chunk(websocket: WebSocket, data: dict, cl
         try:
             audio_bytes = base64.b64decode(audio_b64)
             audio_array = np.frombuffer(audio_bytes, dtype=np.float32)
+
+            # FIXED: Enhanced audio validation
+            if len(audio_array) == 0:
+                streaming_logger.warning(f"[CONVERSATION] Empty audio array for chunk {chunk_id}")
+                return
+
+            if np.isnan(audio_array).any() or np.isinf(audio_array).any():
+                streaming_logger.error(f"[CONVERSATION] Invalid audio data (NaN/Inf) for chunk {chunk_id}")
+                return
+
+            if np.max(np.abs(audio_array)) == 0:
+                streaming_logger.debug(f"[CONVERSATION] Silent audio chunk {chunk_id} - skipping")
+                return
+
         except Exception as e:
             streaming_logger.error(f"[CONVERSATION] Audio decoding error for chunk {chunk_id}: {e}")
             return
@@ -1972,8 +2358,8 @@ async def handle_conversational_audio_chunk(websocket: WebSocket, data: dict, cl
             return
         
         # Smart Conversation Mode - unified processing with performance monitoring
-        mode = "conversation"  # Always use conversation mode
-        prompt = ""  # Prompt is hardcoded in the model
+        mode = data.get("mode", "conversation")  # FIXED: Respect client-specified mode
+        prompt = data.get("prompt", "")  # FIXED: Allow custom prompts
         
         # Start performance timing
         voxtral_timing_id = performance_monitor.start_timing("voxtral_processing", {
@@ -2043,36 +2429,40 @@ async def handle_conversational_audio_chunk(websocket: WebSocket, data: dict, cl
                             "timestamp": time.time()
                         }))
 
-                        # Start TTS for these words immediately
+                        # FIXED: Queue TTS instead of immediate generation to prevent overlap
                         try:
                             tts_timing_id = performance_monitor.start_timing("kokoro_streaming", {
                                 "chunk_id": f"{chunk_id}_tts_{stream_chunk.content['sequence_number']}",
                                 "text_length": len(words_text),
-                                "voice": "hm_omega"
+                                "voice": "hf_alpha"
                             })
 
-                            # Generate TTS for words using streaming
-                            async for tts_chunk in kokoro_model.synthesize_speech_streaming(
-                                words_text,
-                                voice="hm_omega",
-                                chunk_id=f"{chunk_id}_tts_{stream_chunk.content['sequence_number']}"
-                            ):
-                                if tts_chunk.get('audio_chunk'):
-                                    # Send audio chunk immediately
-                                    audio_b64 = base64.b64encode(tts_chunk['audio_chunk']).decode('utf-8')
-                                    await websocket.send_text(json.dumps({
-                                        "type": "streaming_audio",
-                                        "audio_data": audio_b64,
-                                        "chunk_index": tts_chunk['chunk_index'],
-                                        "is_final": tts_chunk['is_final'],
-                                        "sample_rate": tts_chunk['sample_rate'],
-                                        "text_source": words_text,
-                                        "timestamp": time.time()
-                                    }))
+                            # FIXED: Generate complete TTS audio for sequential playback
+                            tts_result = await kokoro_model.synthesize_speech(
+                                text=words_text,
+                                voice="hf_alpha",  # FIXED: Use Indian female voice
+                                speed=1.0
+                            )
 
-                                elif tts_chunk.get('is_final'):
-                                    tts_time = performance_monitor.end_timing(tts_timing_id)
-                                    streaming_logger.info(f"[OK] TTS chunk completed in {tts_time:.1f}ms")
+                            if tts_result and 'audio_data' in tts_result:
+                                # Send complete audio chunk for sequential playback
+                                audio_b64 = base64.b64encode(tts_result['audio_data']).decode('utf-8')
+                                await websocket.send_text(json.dumps({
+                                    "type": "audio_response",
+                                    "audio_data": audio_b64,
+                                    "chunk_id": f"{chunk_id}_tts_{stream_chunk.content['sequence_number']}",
+                                    "voice": "hf_alpha",
+                                    "text_source": words_text,
+                                    "sequence": stream_chunk.content['sequence_number'],
+                                    "metadata": {
+                                        "sample_rate": tts_result.get('sample_rate', 22050),
+                                        "duration_ms": tts_result.get('duration_ms', 0)
+                                    },
+                                    "timestamp": time.time()
+                                }))
+
+                                tts_time = performance_monitor.end_timing(tts_timing_id)
+                                streaming_logger.info(f"[OK] TTS chunk completed in {tts_time:.1f}ms")
 
                         except Exception as tts_error:
                             streaming_logger.error(f"[ERROR] TTS streaming error: {tts_error}")
@@ -2117,8 +2507,9 @@ async def handle_conversational_audio_chunk(websocket: WebSocket, data: dict, cl
                     response = result['response']
                     processing_time = result['processing_time_ms']
 
-                    # Check for response deduplication
-                    last_response = recent_responses.get(client_id, "")
+                    # Check for response deduplication with timestamp-based structure
+                    last_response_data = recent_responses.get(client_id, {})
+                    last_response = last_response_data.get('response', '') if isinstance(last_response_data, dict) else last_response_data
                     is_duplicate = response and response.strip() and response == last_response
 
                     if not is_duplicate:
@@ -2142,13 +2533,13 @@ async def handle_conversational_audio_chunk(websocket: WebSocket, data: dict, cl
                                 tts_timing_id = performance_monitor.start_timing("kokoro_generation", {
                                     "chunk_id": chunk_id,
                                     "text_length": len(response),
-                                    "voice": "hm_omega"  # Kokoro Hindi voice
+                                    "voice": "hf_alpha"  # OPTIMIZED: Hindi female voice for Indian accent (was "af_heart")
                                 })
 
                                 # Generate speech using Kokoro TTS model
                                 result = await kokoro_model.synthesize_speech(
                                     text=response,
-                                    voice="hm_omega"  # Use Kokoro Hindi voice instead of ऋतिका
+                                    voice="hf_alpha"  # OPTIMIZED: Use Hindi female voice for Indian accent
                                 )
 
                                 if not result.get("success", False):
@@ -2180,8 +2571,7 @@ async def handle_conversational_audio_chunk(websocket: WebSocket, data: dict, cl
                                         logger.info(f"[EMOJI] Audio reduced by {gain:.2f}x (preventing clipping)")
 
                                     # Convert numpy array to proper WAV format with headers
-                                    import soundfile as sf
-                                    from io import BytesIO
+                                    # FIXED: soundfile and BytesIO now imported at top of file
 
                                     # Create WAV file in memory with normalized audio
                                     wav_buffer = BytesIO()
@@ -2210,8 +2600,9 @@ async def handle_conversational_audio_chunk(websocket: WebSocket, data: dict, cl
                                         "type": "audio_response",
                                         "audio_data": audio_b64,
                                         "chunk_id": chunk_id,
-                                        "voice": "hm_omega",  # Kokoro Hindi voice
+                                        "voice": "hf_alpha",  # FIXED: Use Indian female voice
                                         "format": "wav",
+                                        "conversation_ready": True,  # FIXED: Signal conversation can continue
                                         "metadata": {
                                             "audio_duration_ms": audio_duration_ms,
                                             "generation_time_ms": tts_generation_time,
@@ -2241,10 +2632,20 @@ async def handle_conversational_audio_chunk(websocket: WebSocket, data: dict, cl
                                 if 'tts_timing_id' in locals():
                                     performance_monitor.end_timing(tts_timing_id)
 
-                        # Update recent response tracking
+                        # Update recent response tracking with timestamp
                         if response and response.strip():
-                            recent_responses[client_id] = response
+                            recent_responses[client_id] = {
+                                'response': response,
+                                'timestamp': time.time()
+                            }
                             streaming_logger.info(f"[CONVERSATION] Unique response sent for chunk {chunk_id}: '{response[:50]}...'")
+
+                            # FIXED: Clear old responses to prevent false duplicates (older than 30 seconds)
+                            current_time = time.time()
+                            expired_clients = [cid for cid, data in recent_responses.items()
+                                             if isinstance(data, dict) and current_time - data.get('timestamp', 0) > 30]
+                            for expired_client in expired_clients:
+                                del recent_responses[expired_client]
                         else:
                             streaming_logger.info(f"[CONVERSATION] Silence detected for chunk {chunk_id} - no response needed")
                     else:

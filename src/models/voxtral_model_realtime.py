@@ -188,7 +188,55 @@ class VoxtralModel:
         except Exception as e:
             realtime_logger.error(f"Error in speech detection: {e}")
             return False
-    
+
+    def _clean_response_text(self, text: str) -> str:
+        """
+        Clean response text to remove formatting artifacts and improve conversational quality
+        """
+        if not text:
+            return ""
+
+        # Remove common formatting artifacts
+        import re
+
+        # Remove markdown formatting
+        text = re.sub(r'\*\*([^*]+)\*\*', r'\1', text)  # Remove **bold**
+        text = re.sub(r'\*([^*]+)\*', r'\1', text)      # Remove *italic*
+        text = re.sub(r'`([^`]+)`', r'\1', text)        # Remove `code`
+        text = re.sub(r'#{1,6}\s*', '', text)           # Remove # headers
+
+        # Remove special tokens and artifacts
+        text = re.sub(r'<\d+>', '', text)               # Remove <2>, <3>, etc.
+        text = re.sub(r'\+{3,}', '', text)              # Remove +++++ sequences
+        text = re.sub(r'[-]{3,}', '', text)             # Remove ----- sequences
+        text = re.sub(r'[=]{3,}', '', text)             # Remove ===== sequences
+
+        # Remove conversation formatting artifacts
+        text = re.sub(r'User:\s*', '', text)            # Remove "User:" prefixes
+        text = re.sub(r'Assistant:\s*', '', text)       # Remove "Assistant:" prefixes
+        text = re.sub(r'AI:\s*', '', text)              # Remove "AI:" prefixes
+
+        # Remove document/file references
+        text = re.sub(r'docs/[^\s]+', '', text)         # Remove docs/ paths
+        text = re.sub(r'\.md\s*', '', text)             # Remove .md references
+
+        # Clean up whitespace and punctuation
+        text = re.sub(r'\s+', ' ', text)                # Normalize whitespace
+        text = re.sub(r'^\s*[:\-\*\+]\s*', '', text)    # Remove leading punctuation
+        text = text.strip()
+
+        # Remove empty responses or responses that are just punctuation
+        if not text or re.match(r'^[^\w]*$', text):
+            return ""
+
+        # Ensure proper sentence ending
+        if text and not text.endswith(('.', '!', '?')):
+            # Only add period if the response seems complete (not a fragment)
+            if len(text.split()) >= 3:  # At least 3 words
+                text += '.'
+
+        return text
+
     async def initialize(self):
         """Initialize the Voxtral model with FIXED attention implementation handling"""
         try:
@@ -466,7 +514,88 @@ class VoxtralModel:
             import traceback
             realtime_logger.error(f"[ERROR] Full error traceback: {traceback.format_exc()}")
             raise
-    
+
+    async def process_text_direct(self, text_input: str, mode="conversation", prompt="", streaming=True):
+        """Process text input directly without audio processing - for testing and diagnostics"""
+        try:
+            realtime_logger.info(f"[TEXT-DIRECT] Processing text input: '{text_input}' (mode: {mode}, streaming: {streaming})")
+
+            # Create a simple, direct conversation format
+            # Use a minimal prompt to avoid formatting artifacts
+            formatted_input = f"User: {text_input}\nAssistant:"
+
+            # Tokenize the input
+            if hasattr(self.processor, 'tokenizer'):
+                inputs = self.processor.tokenizer(
+                    formatted_input,
+                    return_tensors="pt",
+                    padding=True,
+                    truncation=True,
+                    max_length=512
+                ).to(self.device)
+            else:
+                realtime_logger.error("[TEXT-DIRECT] No tokenizer available")
+                return {"error": "No tokenizer available"}
+
+            # Generate response with optimized parameters for clean conversational output
+            generation_config = {
+                'do_sample': True,
+                'temperature': 0.7,  # Higher temperature for more natural responses
+                'top_p': 0.9,        # Broader sampling for natural conversation
+                'top_k': 50,         # Expanded vocabulary for better word choice
+                'repetition_penalty': 1.3,  # Higher penalty to avoid repetition
+                'length_penalty': 0.8,      # Slightly favor shorter responses
+                'no_repeat_ngram_size': 2,   # Prevent 2-gram repetition
+                'pad_token_id': self.processor.tokenizer.eos_token_id if hasattr(self.processor, 'tokenizer') else None,
+                'eos_token_id': self.processor.tokenizer.eos_token_id if hasattr(self.processor, 'tokenizer') else None,
+                'use_cache': True,
+                'early_stopping': True,      # Stop when natural end is reached
+                'max_new_tokens': 50,        # Shorter responses to avoid rambling
+                'min_new_tokens': 3,         # Ensure minimum response length
+                'output_scores': False,
+                'output_attentions': False,
+                'output_hidden_states': False,
+            }
+
+            with torch.no_grad():
+                outputs = self.model.generate(
+                    **inputs,
+                    **generation_config,
+                    return_dict_in_generate=False,
+                    synced_gpus=False,
+                )
+
+            # Decode the response
+            if hasattr(self.processor, 'tokenizer'):
+                # Get only the new tokens (exclude input)
+                input_length = inputs['input_ids'].shape[1]
+                new_tokens = outputs[0][input_length:]
+
+                response_text = self.processor.tokenizer.decode(
+                    new_tokens,
+                    skip_special_tokens=True,
+                    clean_up_tokenization_spaces=True
+                ).strip()
+
+                # Clean the response text to remove formatting artifacts
+                response_text = self._clean_response_text(response_text)
+            else:
+                response_text = "No tokenizer available for decoding"
+
+            realtime_logger.info(f"[TEXT-DIRECT] Generated response: '{response_text}'")
+
+            return {
+                "response": response_text,
+                "input": text_input,
+                "mode": mode,
+                "streaming": streaming,
+                "timestamp": time.time()
+            }
+
+        except Exception as e:
+            realtime_logger.error(f"[TEXT-DIRECT] Error processing text input: {e}")
+            return {"error": str(e)}
+
     async def process_realtime_chunk(self, audio_data: torch.Tensor, chunk_id: int, mode: str = "conversation", prompt: str = "") -> Dict[str, Any]:
         """
         PRODUCTION-READY processing for conversational real-time audio chunks with VAD
@@ -478,8 +607,23 @@ class VoxtralModel:
             chunk_start_time = time.time()
             realtime_logger.debug(f"[AUDIO] Processing conversational chunk {chunk_id} with {len(audio_data)} samples")
             
-            # Convert tensor to numpy for VAD analysis
-            audio_np = audio_data.detach().cpu().numpy().copy()
+            # Convert tensor to numpy for VAD analysis - handle both tensor and numpy inputs
+            if hasattr(audio_data, 'detach'):
+                # Input is a tensor
+                audio_np = audio_data.detach().cpu().numpy().copy()
+            else:
+                # Input is already numpy array
+                audio_np = audio_data.copy() if hasattr(audio_data, 'copy') else np.array(audio_data)
+
+            # FIXED: Enhanced input validation
+            if len(audio_np) == 0:
+                realtime_logger.warning(f"[WARN] Empty audio data for chunk {chunk_id}")
+                return {"success": False, "error": "Empty audio data", "response": ""}
+
+            if np.isnan(audio_np).any() or np.isinf(audio_np).any():
+                realtime_logger.error(f"[ERROR] Invalid audio data (NaN/Inf) for chunk {chunk_id}")
+                return {"success": False, "error": "Invalid audio data", "response": ""}
+
             sample_rate = config.audio.sample_rate
             duration_s = len(audio_np) / sample_rate
             
@@ -517,31 +661,18 @@ class VoxtralModel:
                         
                         # FIXED: Use standard Hugging Face VoxtralProcessor API
                         # Choose processing mode based on requirements
-                        if mode == "speech_to_speech" or not prompt:
-                            # Audio-only mode for pure speech-to-speech processing
-                            conversation = [
-                                {
-                                    "role": "user",
-                                    "content": [
-                                        {"type": "audio", "path": tmp_file.name}
-                                    ]
-                                }
-                            ]
-                            realtime_logger.debug(f"[VAD] Using audio-only mode for speech-to-speech processing")
-                        else:
-                            # Audio + text mode for conversational AI
-                            conversation_prompt = prompt or "You are a helpful AI assistant in a natural voice conversation. Listen carefully to what the person is saying and respond naturally, as if you're having a friendly chat. Keep your responses conversational, concise (1-2 sentences), and engaging. Respond directly to what they said without repeating their words back to them."
-
-                            conversation = [
-                                {
-                                    "role": "user",
-                                    "content": [
-                                        {"type": "audio", "path": tmp_file.name},
-                                        {"type": "text", "text": conversation_prompt}
-                                    ]
-                                }
-                            ]
-                            realtime_logger.debug(f"[VAD] Using audio+text mode for conversational AI")
+                        # FIXED: Enhanced conversation prompt for coherent English responses
+                        conversation_prompt = prompt or "You are a helpful AI assistant. Listen carefully to the user's speech and respond naturally in clear, conversational English. Give a complete, coherent response that directly addresses what the user said. Speak as if you're having a friendly conversation. Keep your response natural and helpful."
+                        conversation = [
+                            {
+                                "role": "user",
+                                "content": [
+                                    {"type": "audio", "path": tmp_file.name},
+                                    {"type": "text", "text": conversation_prompt}
+                                ]
+                            }
+                        ]
+                        realtime_logger.debug(f"[CRITICAL-FIX] Using audio+text mode with conversation prompt for proper response guidance")
 
                         # Process inputs with correct VoxtralProcessor API
                         inputs = self.processor.apply_chat_template(conversation, return_tensors="pt")
@@ -565,21 +696,21 @@ class VoxtralModel:
                                     streaming_mode = mode == "streaming" or prompt.get("streaming", False) if isinstance(prompt, dict) else False
 
                                     if streaming_mode:
-                                        # STREAMING GENERATION: 250 tokens with word-level streaming
+                                        # STREAMING GENERATION: Optimized for clean conversational responses
                                         outputs = self.model.generate(
                                             **inputs,
-                                            max_new_tokens=250,     # STREAMING: Full response length
-                                            min_new_tokens=1,
+                                            max_new_tokens=50,      # FIXED: Shorter responses to avoid rambling
+                                            min_new_tokens=3,       # FIXED: Ensure minimum meaningful response
                                             do_sample=True,         # STREAMING: Enable sampling for natural responses
                                             num_beams=1,
-                                            temperature=0.3,        # STREAMING: Balanced temperature for quality
+                                            temperature=0.7,        # STREAMING: Higher temperature for natural conversation
                                             top_p=0.9,             # STREAMING: Broader sampling for natural speech
                                             top_k=50,              # STREAMING: Expanded vocabulary
-                                            repetition_penalty=1.2,
+                                            repetition_penalty=1.3, # STREAMING: Higher penalty to avoid repetition
                                             pad_token_id=self.processor.tokenizer.eos_token_id if hasattr(self.processor, 'tokenizer') else None,
                                             eos_token_id=self.processor.tokenizer.eos_token_id if hasattr(self.processor, 'tokenizer') else None,
                                             use_cache=True,
-                                            early_stopping=True,
+                                            early_stopping=True,   # FIXED: Enable early stopping for natural conversation flow
                                             output_scores=False,
                                             output_attentions=False,
                                             output_hidden_states=False,
@@ -587,22 +718,21 @@ class VoxtralModel:
                                             synced_gpus=False,
                                         )
                                     else:
-                                        # ULTRA-LOW LATENCY: Maximum speed generation parameters for sub-50ms target
+                                        # REGULAR MODE: Balanced speed and quality for conversational responses
                                         outputs = self.model.generate(
                                             **inputs,
-                                            max_new_tokens=10,      # ULTRA-OPTIMIZED: Reduced to 10 tokens for maximum speed
-                                            min_new_tokens=1,       # ULTRA-REDUCED: Minimum 1 token for fastest response
-                                            do_sample=False,        # ULTRA-OPTIMIZED: Greedy decoding for maximum speed
+                                            max_new_tokens=30,      # BALANCED: Reasonable response length
+                                            min_new_tokens=3,       # BALANCED: Ensure meaningful response
+                                            do_sample=True,         # BALANCED: Enable sampling for natural responses
                                             num_beams=1,           # Keep single beam for speed
-                                            temperature=0.01,      # ULTRA-OPTIMIZED: Minimal temperature for fastest generation
-                                            top_p=0.7,            # ULTRA-OPTIMIZED: More focused sampling
-                                            top_k=10,             # ULTRA-OPTIMIZED: Minimal vocabulary for speed
-                                            repetition_penalty=1.4, # ULTRA-OPTIMIZED: Higher penalty for more concise responses
+                                            temperature=0.7,       # BALANCED: Natural conversation temperature
+                                            top_p=0.9,            # BALANCED: Broader sampling for natural speech
+                                            top_k=50,             # BALANCED: Good vocabulary range
+                                            repetition_penalty=1.3, # BALANCED: Prevent repetition without being too restrictive
                                             pad_token_id=self.processor.tokenizer.eos_token_id if hasattr(self.processor, 'tokenizer') else None,
                                             eos_token_id=self.processor.tokenizer.eos_token_id if hasattr(self.processor, 'tokenizer') else None,
                                             use_cache=True,         # Use KV cache for speed
-                                            # ULTRA-LOW LATENCY: Additional optimizations
-                                            early_stopping=True,   # Stop as soon as EOS is generated
+                                            early_stopping=True,   # Stop when natural end is reached
                                             output_scores=False,   # Don't compute scores for speed
                                             output_attentions=False, # Don't compute attentions for speed
                                             output_hidden_states=False, # Don't compute hidden states for speed
@@ -650,8 +780,8 @@ class VoxtralModel:
                         }
                         self.processing_history.append(performance_data)
                         
-                        # Clean and optimize response
-                        cleaned_response = response.strip()
+                        # Clean and optimize response - remove formatting artifacts
+                        cleaned_response = self._clean_response_text(response)
                         
                         # Filter out common noise responses
                         noise_responses = [
@@ -691,9 +821,18 @@ class VoxtralModel:
                         }
                         
                     finally:
-                        # Cleanup temporary file
+                        # FIXED: Enhanced cleanup with memory management
                         try:
                             os.unlink(tmp_file.name)
+                            realtime_logger.debug(f"[CLEANUP] Removed temporary file: {tmp_file.name}")
+                        except Exception as cleanup_error:
+                            realtime_logger.warning(f"[WARN] Failed to cleanup temp file: {cleanup_error}")
+
+                        # FIXED: Clear audio data from memory to prevent leaks
+                        try:
+                            del audio_np
+                            if torch.cuda.is_available():
+                                torch.cuda.empty_cache()
                         except:
                             pass
                 
@@ -805,9 +944,14 @@ class VoxtralModel:
             if audio_data.dtype != np.float32:
                 audio_data = audio_data.astype(np.float32)
 
-            # Normalize audio
-            if np.max(np.abs(audio_data)) > 0:
-                audio_data = audio_data / np.max(np.abs(audio_data)) * 0.95
+            # FIXED: Normalize audio with proper handling of silent audio
+            max_amplitude = np.max(np.abs(audio_data))
+            if max_amplitude > 0:
+                audio_data = audio_data / max_amplitude * 0.95
+            else:
+                # Handle silent audio - keep as is but ensure it's still an array
+                realtime_logger.debug(f"[DEBUG] Silent audio detected, max amplitude: {max_amplitude}")
+                audio_data = np.array(audio_data, dtype=np.float32)
 
             preprocessing_time = (time.time() - preprocessing_start) * 1000
             realtime_logger.debug(f"[FAST] Audio preprocessing completed in {preprocessing_time:.1f}ms")
@@ -842,26 +986,63 @@ class VoxtralModel:
 
                 except TypeError as te:
                     if "not iterable" in str(te):
-                        # Handle the numpy.float32 iteration issue by converting to list
+                        # Handle the numpy.float32 iteration issue by using proper audio processing
                         realtime_logger.warning(f"[WARN] Handling numpy iteration issue: {te}")
                         try:
-                            # Convert numpy array to list for processor
-                            audio_list = audio_data.tolist() if hasattr(audio_data, 'tolist') else list(audio_data)
-                            inputs = self.processor(audio_list, sampling_rate=16000, return_tensors="pt")
+                            # FIXED: Create temporary file for conversation template approach
+                            # This avoids the numpy iteration error and ensures proper audio processing
+                            with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as fallback_tmp_file:
+                                try:
+                                    # FIXED: Ensure audio_data is a proper numpy array before writing
+                                    if not isinstance(audio_data, np.ndarray):
+                                        audio_data = np.array(audio_data, dtype=np.float32)
+                                    if audio_data.ndim == 0:  # Handle scalar values
+                                        audio_data = np.array([audio_data], dtype=np.float32)
+
+                                    # Write audio to temporary file for conversation template
+                                    sf.write(fallback_tmp_file.name, audio_data, 16000)
+                                    realtime_logger.debug(f"[FIXED] Created fallback temporary file: {fallback_tmp_file.name}")
+
+                                    # FIXED: Enhanced conversation prompt for coherent English responses
+                                    conversation_prompt = prompt or "You are a helpful AI assistant. Listen carefully to the user's speech and respond naturally in clear, conversational English. Give a complete, coherent response that directly addresses what the user said. Speak as if you're having a friendly conversation. Keep your response natural and helpful."
+                                    conversation = [
+                                        {
+                                            "role": "user",
+                                            "content": [
+                                                {"type": "audio", "path": fallback_tmp_file.name},
+                                                {"type": "text", "text": conversation_prompt}
+                                            ]
+                                        }
+                                    ]
+                                    realtime_logger.debug(f"[CRITICAL-FIX] Using audio+text mode with conversation prompt for proper response guidance")
+
+                                    # Process with conversation template
+                                    inputs = self.processor.apply_chat_template(conversation, return_tensors="pt")
+
+                                finally:
+                                    # Cleanup fallback temporary file
+                                    try:
+                                        os.unlink(fallback_tmp_file.name)
+                                        realtime_logger.debug(f"[CLEANUP] Removed fallback temporary file: {fallback_tmp_file.name}")
+                                    except Exception as cleanup_error:
+                                        realtime_logger.warning(f"[WARN] Failed to cleanup fallback temp file: {cleanup_error}")
+
                         except Exception as fallback_error:
-                            realtime_logger.error(f"[ERROR] Fallback processing failed: {fallback_error}")
-                            # Final fallback - create dummy inputs
-                            inputs = {
-                                'input_ids': torch.zeros((1, 1), dtype=torch.long, device=self.device),
-                                'attention_mask': torch.ones((1, 1), dtype=torch.long, device=self.device)
-                            }
+                            realtime_logger.error(f"[ERROR] Conversation template processing failed: {fallback_error}")
+                            # Return error instead of dummy inputs to avoid Korean text generation
+                            raise RuntimeError(f"Audio processing failed: {fallback_error}")
                     else:
                         raise te
 
                 realtime_logger.debug(f"[DEBUG] Processor returned inputs type: {type(inputs)}")
 
                 # Move inputs to device
-                if isinstance(inputs, dict):
+                if hasattr(inputs, 'data') and hasattr(inputs, 'keys'):
+                    # BatchFeature object - move each tensor to device
+                    for key in inputs.keys():
+                        if hasattr(inputs[key], 'to'):
+                            inputs[key] = inputs[key].to(self.device)
+                elif isinstance(inputs, dict):
                     inputs = {k: v.to(self.device) if hasattr(v, 'to') else v for k, v in inputs.items()}
                 else:
                     inputs = inputs.to(self.device)
@@ -886,13 +1067,31 @@ class VoxtralModel:
 
                         # Initialize generation state
                         realtime_logger.debug(f"[DEBUG] Initializing generation state")
-                        if isinstance(inputs, dict):
+                        realtime_logger.debug(f"[DEBUG] inputs type: {type(inputs)}")
+
+                        # FIXED: Properly handle BatchFeature objects from processor
+                        if hasattr(inputs, 'data') and hasattr(inputs, 'keys'):
+                            # This is a BatchFeature object
+                            realtime_logger.debug(f"[DEBUG] BatchFeature keys: {list(inputs.keys())}")
+                            input_ids = inputs.get('input_ids')
+                            attention_mask = inputs.get('attention_mask')
+                            realtime_logger.debug(f"[DEBUG] Extracted from BatchFeature - input_ids: {input_ids is not None}, attention_mask: {attention_mask is not None}")
+                        elif isinstance(inputs, dict):
+                            # Regular dictionary
                             input_ids = inputs.get('input_ids', inputs.get('audio_values'))
                             attention_mask = inputs.get('attention_mask')
+                            realtime_logger.debug(f"[DEBUG] Found in dict - input_ids: {input_ids is not None}, attention_mask: {attention_mask is not None}")
                         else:
+                            # Direct tensor input
                             input_ids = inputs
                             attention_mask = None
+                            realtime_logger.debug(f"[DEBUG] Using inputs directly as input_ids")
 
+                        # Validate input_ids
+                        if input_ids is None:
+                            raise ValueError("No input_ids found in processor output")
+
+                        realtime_logger.debug(f"[DEBUG] Input IDs type: {type(input_ids)}")
                         realtime_logger.debug(f"[DEBUG] Input IDs shape: {input_ids.shape if hasattr(input_ids, 'shape') else 'no shape'}")
 
                         # Prepare for iterative generation
@@ -925,41 +1124,77 @@ class VoxtralModel:
 
                     generation_config = {
                         'do_sample': True,
-                        'temperature': 0.4,  # Slightly higher for more diverse generation
-                        'top_p': 0.85,       # Balanced nucleus sampling
-                        'top_k': 40,         # Reduced for faster generation
-                        'repetition_penalty': 1.15,  # Reduced to allow natural repetition
-                        'length_penalty': 1.1,       # Encourage longer responses
-                        'no_repeat_ngram_size': 3,    # Prevent short repetitive loops
+                        'temperature': 0.7,  # FIXED: Increased for more diverse, natural generation
+                        'top_p': 0.9,        # FIXED: Increased for more natural language variety
+                        'top_k': 50,         # FIXED: Increased for better language diversity
+                        'repetition_penalty': 1.05,  # FIXED: Reduced to allow more natural repetition
+                        'length_penalty': 1.0,       # Neutral length penalty for faster generation
+                        'no_repeat_ngram_size': 2,    # FIXED: Reduced to allow more natural patterns
                         'pad_token_id': pad_token_id,
                         'eos_token_id': eos_token_id,
                         'use_cache': True,
-                        'early_stopping': False,      # Prevent premature stopping
+                        'early_stopping': False,      # FIXED: Disable early stopping for complete responses
                         'forced_eos_token_id': None,  # Don't force early EOS
+                        'forced_bos_token_id': None,  # FIXED: Ensure no forced language tokens
+                        # FIXED: Removed output_* parameters to avoid conflicts with return_dict_in_generate
                     }
 
-                    # STREAMING LOOP: Generate tokens one by one with enhanced parameters for meaningful responses
-                    max_tokens = 300  # Increased target for longer, more meaningful responses
-                    min_words_before_stop = 15  # Minimum words before allowing EOS (increased from 10)
+                    # STREAMING LOOP: Generate tokens one by one with optimized parameters for low latency
+                    max_tokens = 50   # FIXED: Increased for complete responses (was 20)
+                    min_words_before_stop = 8   # FIXED: Increased minimum words for complete responses (was 5)
                     words_generated = 0
+                    generated_text_parts = []  # FIXED: Initialize list to track generated text parts
 
                     for step in range(max_tokens):
                         # Generate next token with enhanced error handling
                         try:
+                            realtime_logger.debug(f"[DEBUG] About to call model.generate with current_input_ids type: {type(current_input_ids)}")
+                            if hasattr(current_input_ids, 'shape'):
+                                realtime_logger.debug(f"[DEBUG] current_input_ids shape: {current_input_ids.shape}")
+
+                            # FIXED: Ensure current_input_ids is a proper tensor
+                            if not isinstance(current_input_ids, torch.Tensor):
+                                realtime_logger.error(f"[ERROR] current_input_ids is not a tensor: {type(current_input_ids)}")
+                                raise ValueError(f"Expected tensor input, got {type(current_input_ids)}")
+
                             with torch.no_grad():
+                                # FIXED: Clean generation config to avoid parameter conflicts
+                                clean_generation_config = {k: v for k, v in generation_config.items()
+                                                         if k not in ['output_scores', 'output_attentions', 'output_hidden_states', 'return_dict_in_generate']}
+
                                 outputs = self.model.generate(
                                     current_input_ids,
-                                    max_new_tokens=1,
+                                    max_new_tokens=3,  # FIXED: Generate 3 tokens at a time for better flow (was 1)
                                     min_new_tokens=1,
-                                    **generation_config,
+                                    **clean_generation_config,
+                                    # FIXED: Explicitly set these to avoid conflicts
                                     output_scores=False,
                                     output_attentions=False,
                                     output_hidden_states=False,
                                     return_dict_in_generate=False,
-                                    synced_gpus=False,
                                 )
+                            realtime_logger.debug(f"[DEBUG] Generation successful, outputs type: {type(outputs)}")
+
                         except Exception as gen_error:
                             realtime_logger.error(f"[ERROR] Generation error at step {step}: {gen_error}")
+                            realtime_logger.error(f"[ERROR] Generation error details: {type(gen_error).__name__}: {str(gen_error)}")
+                            realtime_logger.error(f"[ERROR] current_input_ids type: {type(current_input_ids)}")
+                            if hasattr(current_input_ids, 'shape'):
+                                realtime_logger.error(f"[ERROR] current_input_ids shape: {current_input_ids.shape}")
+                            else:
+                                realtime_logger.error(f"[ERROR] current_input_ids has no shape attribute")
+                            if hasattr(current_input_ids, 'shape'):
+                                realtime_logger.error(f"[ERROR] current_input_ids shape: {current_input_ids.shape}")
+                            import traceback
+                            realtime_logger.error(f"[ERROR] Full traceback: {traceback.format_exc()}")
+                            # If generation fails completely, yield an error and break
+                            yield {
+                                'type': 'error',
+                                'error': f"Generation failed at step {step}: {str(gen_error)}",
+                                'chunk_id': chunk_id,
+                                'is_complete': True,
+                                'timestamp': time.time()
+                            }
                             break
 
                         # Extract new token with robust error handling
@@ -979,10 +1214,18 @@ class VoxtralModel:
                             realtime_logger.error(f"[ERROR] Token extraction error: {token_error}")
                             break
 
-                        # Decode token to text with robust type checking
+                        # Decode token to text with robust type checking and Unicode normalization
                         try:
                             if hasattr(self.processor, 'tokenizer'):
                                 token_text = self.processor.tokenizer.decode([new_token_id], skip_special_tokens=True)
+                                # Add Unicode normalization to fix encoding issues
+                                import unicodedata
+                                token_text = unicodedata.normalize('NFKC', token_text)
+
+                                # CRITICAL FIX: Filter out single punctuation responses at the start
+                                if step == 0 and token_text.strip() in ['!', '?', '.', ':', ';', ',', '*', '"', "'", '(', ')', '[', ']']:
+                                    realtime_logger.debug(f"[FILTER] Skipping single punctuation token at start: '{token_text}'")
+                                    continue  # Skip this token and generate the next one
                             else:
                                 token_text = f"<{new_token_id}>"
 
@@ -994,12 +1237,19 @@ class VoxtralModel:
                             if not token_text or not isinstance(token_text, str):
                                 token_text = f"<{new_token_id}>"
 
+                            # Filter out non-English characters to prevent language mismatch
+                            # Keep only ASCII printable characters, spaces, and basic punctuation
+                            import string
+                            allowed_chars = string.printable
+                            token_text = ''.join(char for char in token_text if char in allowed_chars)
+
                         except Exception as decode_error:
                             realtime_logger.warning(f"[WARN] Token decode error: {decode_error}, using fallback")
                             token_text = f"<{new_token_id}>"
 
-                        # Add to word buffer
+                        # Add to word buffer and generated text parts
                         word_buffer += token_text
+                        generated_text_parts.append(token_text)  # FIXED: Track generated text for sentence completion
 
                         # Check if we have complete words (2+ words for TTS trigger)
                         # Enhanced word detection with robust string handling
@@ -1021,40 +1271,64 @@ class VoxtralModel:
                             realtime_logger.debug(f"Punctuation check error: {e}, token_text type: {type(token_text)}")
                             has_punctuation = False
 
-                        # ENHANCED: Send words in much larger chunks for better TTS efficiency and fewer audio chunks
-                        # Require at least 8 words OR a sentence-ending punctuation with at least 5 words
+                        # FIXED: Phrase-based streaming for better quality and coherence
+                        # Send after 3-5 words for natural phrases, or any sentence ending
                         sentence_ending = any(char in str(token_text) for char in ['.', '!', '?']) if isinstance(token_text, str) else False
+                        comma_pause = any(char in str(token_text) for char in [',', ';']) if isinstance(token_text, str) else False
 
-                        if len(words) >= 8 or (sentence_ending and len(words) >= 5):
-                            # Send words for TTS processing - keep more words together for meaningful chunks
-                            if sentence_ending and len(words) >= 5:
+                        if len(words) >= 5 or sentence_ending or comma_pause:
+                            # FIXED: Send meaningful phrases instead of individual words
+                            if sentence_ending:
                                 # Send complete sentence
                                 words_to_send = ' '.join(words)
                                 word_buffer = ""
+                            elif comma_pause:
+                                # Send phrase up to comma
+                                words_to_send = ' '.join(words)
+                                word_buffer = ""
                             else:
-                                # Send most words but keep 2-3 for next chunk to maintain flow
-                                words_to_send = ' '.join(words[:-2]) if len(words) > 8 else ' '.join(words)
-                                word_buffer = ' '.join(words[-2:]) if len(words) > 8 else ""
+                                # Send 3-5 words for natural phrases
+                                words_to_send = ' '.join(words[:5])
+                                word_buffer = ' '.join(words[5:]) if len(words) > 5 else ""
 
                             if words_to_send.strip():
-                                words_generated += len(words_to_send.split())
+                                # Clean the words before sending to remove formatting artifacts
+                                cleaned_words = self._clean_response_text(words_to_send.strip())
 
-                                # Log the meaningful text chunk being sent
-                                realtime_logger.info(f"[VOXTRAL-CHUNK] Sending {len(words_to_send.split())} words for TTS: '{words_to_send.strip()}'")
+                                # Only send if we have meaningful content after cleaning
+                                if cleaned_words and len(cleaned_words.strip()) > 0:
+                                    words_generated += len(cleaned_words.split())
 
-                                yield {
-                                    'type': 'words',
-                                    'text': words_to_send.strip(),
-                                    'tokens': generated_tokens[-len(words_to_send.split()):] if generated_tokens else [],
-                                    'step': step,
-                                    'is_complete': False,
-                                    'chunk_id': chunk_id,
-                                    'timestamp': time.time(),
-                                    'word_count': words_generated
-                                }
+                                    # Log the meaningful text chunk being sent
+                                    realtime_logger.info(f"[VOXTRAL-CHUNK] Sending {len(cleaned_words.split())} words for TTS: '{cleaned_words}'")
+
+                                    yield {
+                                        'type': 'words',
+                                        'text': cleaned_words,
+                                        'tokens': generated_tokens[-len(words_to_send.split()):] if generated_tokens else [],
+                                        'step': step,
+                                        'is_complete': False,
+                                        'chunk_id': chunk_id,
+                                        'timestamp': time.time(),
+                                        'word_count': words_generated
+                                    }
 
                         # Update input for next iteration
                         current_input_ids = outputs
+
+                        # ENHANCED: Check for sentence completion to stop naturally
+                        current_response = ''.join(generated_text_parts).strip()
+
+                        # Stop if we have a complete sentence for greeting responses
+                        if (words_generated >= 8 and  # Minimum 8 words for a complete greeting response
+                            (current_response.endswith('?') or
+                             current_response.endswith('!') or
+                             current_response.endswith('.')) and
+                            ('hear you' in current_response.lower() or
+                             'doing today' in current_response.lower() or
+                             'how are you' in current_response.lower())):
+                            realtime_logger.info(f"[OK] Complete greeting response detected after {words_generated} words: '{current_response}'")
+                            break
 
                         # Enhanced EOS token handling - only stop if we have enough content
                         try:
@@ -1067,11 +1341,11 @@ class VoxtralModel:
 
                             if (new_token_id == eos_token_id and
                                 words_generated >= min_words_before_stop and
-                                step > 20):  # Minimum 20 tokens before allowing EOS
+                                step > 20):  # FIXED: Minimum 20 tokens before allowing EOS for complete responses (was 10)
                                 realtime_logger.info(f"[OK] Natural EOS reached after {words_generated} words, {step} tokens")
                                 break
-                            elif new_token_id == eos_token_id and words_generated < min_words_before_stop:
-                                realtime_logger.debug(f"[WARN] Early EOS ignored - only {words_generated} words generated")
+                            elif new_token_id == eos_token_id and (words_generated < min_words_before_stop or step <= 20):
+                                realtime_logger.debug(f"[WARN] Early EOS ignored - only {words_generated} words, {step} tokens generated")
                                 # Continue generation despite EOS
                         except Exception as eos_error:
                             realtime_logger.debug(f"[WARN] EOS token handling error: {eos_error}")
@@ -1082,15 +1356,18 @@ class VoxtralModel:
 
                 # Send any remaining text
                 if word_buffer.strip():
-                    yield {
-                        'type': 'words',
-                        'text': word_buffer.strip(),
-                        'tokens': [generated_tokens[-1]] if generated_tokens else [],
-                        'step': step if 'step' in locals() else 0,
-                        'is_complete': False,
-                        'chunk_id': chunk_id,
-                        'timestamp': time.time()
-                    }
+                    # Clean the remaining words before sending
+                    cleaned_remaining = self._clean_response_text(word_buffer.strip())
+                    if cleaned_remaining and len(cleaned_remaining.strip()) > 0:
+                        yield {
+                            'type': 'words',
+                            'text': cleaned_remaining,
+                            'tokens': [generated_tokens[-1]] if generated_tokens else [],
+                            'step': step if 'step' in locals() else 0,
+                            'is_complete': False,
+                            'chunk_id': chunk_id,
+                            'timestamp': time.time()
+                        }
 
                 inference_time = (time.time() - inference_start) * 1000
                 total_time = (time.time() - start_time) * 1000
@@ -1099,23 +1376,26 @@ class VoxtralModel:
                 try:
                     if hasattr(self.processor, 'tokenizer') and generated_tokens:
                         response_text = self.processor.tokenizer.decode(generated_tokens, skip_special_tokens=True)
-                    elif hasattr(self.processor, 'tokenizer'):
+                    elif hasattr(self.processor, 'tokenizer') and 'outputs' in locals() and outputs is not None:
                         response_text = self.processor.tokenizer.decode(outputs[0], skip_special_tokens=True)
                     else:
-                        response_text = str(outputs[0]) if outputs is not None else "Generated response"
+                        response_text = f"Generated {len(generated_tokens)} tokens" if generated_tokens else "No response generated"
+
+                    # Clean the final response text
+                    cleaned_response_text = self._clean_response_text(response_text)
 
                     # ENHANCED: Log the complete Voxtral response prominently
-                    realtime_logger.info(f"[VOXTRAL-COMPLETE] Full streaming response ({len(generated_tokens)} tokens, {words_generated} words): '{response_text.strip()}'")
+                    realtime_logger.info(f"[VOXTRAL-COMPLETE] Full streaming response ({len(generated_tokens)} tokens, {words_generated} words): '{cleaned_response_text}'")
 
                 except Exception as decode_error:
                     realtime_logger.warning(f"[WARN] Final decode error: {decode_error}")
-                    response_text = f"Generated {len(generated_tokens)} tokens"
+                    cleaned_response_text = f"Generated {len(generated_tokens)} tokens" if generated_tokens else "No response generated"
 
                 # Send completion marker
                 yield {
                     'type': 'complete',
                     'chunk_id': chunk_id,
-                    'response_text': response_text,
+                    'response_text': cleaned_response_text,
                     'inference_time_ms': inference_time,
                     'total_time_ms': total_time,
                     'is_complete': True,

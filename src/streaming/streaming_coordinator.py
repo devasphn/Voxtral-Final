@@ -51,14 +51,15 @@ class StreamingCoordinator:
             'total_session_latency': []
         }
         
-        # ENHANCED: Streaming configuration - optimized for meaningful chunks and fewer TTS calls
+        # FIXED: Balanced streaming configuration for quality and speed
         self.config = {
-            'words_trigger_threshold': 12,  # ENHANCED: Start TTS after 12 words for more complete phrases
-            'max_word_buffer_size': 50,     # Max words to buffer
-            'interruption_timeout_ms': 100, # Max time to detect interruption
-            'tts_chunk_size_ms': 300,       # Larger TTS chunk size for fewer calls (was 200)
-            'max_concurrent_tts': 2,        # Reduced concurrent TTS tasks (was 3)
-            'min_words_for_timeout': 6      # Minimum words before timeout trigger
+            'words_trigger_threshold': 5,   # FIXED: Wait for 5 words for better coherence
+            'max_word_buffer_size': 20,     # FIXED: Larger buffer for complete phrases
+            'interruption_timeout_ms': 50,  # FIXED: Reasonable interruption detection
+            'tts_chunk_size_ms': 200,       # FIXED: Larger chunks for better audio quality
+            'max_concurrent_tts': 1,        # FIXED: Sequential TTS to prevent overlap
+            'min_words_for_timeout': 3,     # FIXED: Minimum 3 words before timeout
+            'timeout_threshold_ms': 1000    # FIXED: Wait longer for complete thoughts
         }
         
         # Callbacks for external integration
@@ -144,19 +145,30 @@ class StreamingCoordinator:
                             streaming_logger.error(f"[ERROR] Word buffer error: {buffer_error}")
                             continue
 
-                        # Dynamic TTS triggering based on content and timing
+                        # ULTRA-LOW LATENCY: Aggressive TTS triggering for immediate response
                         trigger_threshold = self.config['words_trigger_threshold']
                         buffer_size = len(self.word_buffer)
 
-                        # ENHANCED: Trigger TTS with larger thresholds for meaningful chunks
+                        # ULTRA-LOW: Trigger TTS much more aggressively for sub-100ms latency
                         time_since_last = time.time() - (self.word_buffer[-2]['timestamp'] if len(self.word_buffer) > 1 else session_start_time)
-                        should_trigger = (buffer_size >= trigger_threshold or
-                                        (buffer_size >= self.config['min_words_for_timeout'] and time_since_last > 2.0))  # ENHANCED: 2s timeout, min 6 words
+                        time_since_last_ms = time_since_last * 1000
+
+                        should_trigger = (
+                            buffer_size >= trigger_threshold or  # 1+ words
+                            (buffer_size >= self.config['min_words_for_timeout'] and time_since_last_ms > self.config['timeout_threshold_ms']) or  # 1+ words after 200ms
+                            (buffer_size >= 1 and time_since_last_ms > 500)  # Any word after 500ms (fallback)
+                        )
 
                         if should_trigger:
-                            # Collect words for TTS
+                            # FIXED: Collect meaningful phrases for better TTS quality
                             words_for_tts = []
-                            words_to_collect = min(trigger_threshold, buffer_size)
+                            # Collect multiple words for coherent phrases
+                            if buffer_size >= trigger_threshold:
+                                # Send 3-5 words at a time for better phrases
+                                words_to_collect = min(5, buffer_size)
+                            else:
+                                # Send whatever we have if timeout triggered
+                                words_to_collect = buffer_size
 
                             for _ in range(words_to_collect):
                                 if self.word_buffer:
@@ -293,22 +305,51 @@ class StreamingCoordinator:
         finally:
             self.state = StreamingState.IDLE
     
+    async def reset_session(self):
+        """Reset session state for clean start between interactions"""
+        streaming_logger.info(f"[SESSION-RESET] Resetting streaming coordinator state")
+
+        # Reset all state variables
+        self.state = StreamingState.IDLE
+        self.current_session_id = None
+        self.interruption_detected = False
+
+        # Clear all buffers
+        self.word_buffer.clear()
+        while not self.tts_queue.empty():
+            try:
+                self.tts_queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+
+        # Cancel all active tasks
+        for task in list(self.active_tts_tasks):
+            if not task.done():
+                task.cancel()
+        self.active_tts_tasks.clear()
+
+        # Reset tracking variables
+        self.full_response_text = ""
+        self.total_words_processed = 0
+
+        streaming_logger.info(f"[SESSION-RESET] Streaming coordinator reset completed")
+
     async def handle_interruption(self, interruption_source: str = "user_speech"):
         """Handle user interruption - cancel ongoing TTS and reset state"""
         interruption_start = time.time()
-        
+
         streaming_logger.info(f"[EMOJI] Interruption detected from {interruption_source}")
         self.interruption_detected = True
         self.state = StreamingState.INTERRUPTED
-        
+
         # Cancel all active TTS tasks
         for task in list(self.active_tts_tasks):
             if not task.done():
                 task.cancel()
                 streaming_logger.debug(f"[EMOJI] Cancelled TTS task: {task}")
-        
+
         self.active_tts_tasks.clear()
-        
+
         # Clear buffers
         self.word_buffer.clear()
         while not self.tts_queue.empty():

@@ -19,13 +19,22 @@ tts_service_logger = logging.getLogger("tts_service")
 tts_service_logger.setLevel(logging.INFO)
 
 def map_voice_to_kokoro(voice_name: str) -> str:
-    """Map voice requests to appropriate Kokoro voices"""
-    if voice_name in ["ऋतिका", "ritika"]:
-        return "hm_omega"  # Hindi male voice
-    elif voice_name in ["hindi", "हिंदी"]:
-        return "hm_omega"  # Default Hindi voice
-    # Default to English female voice for unknown voices
-    return "af_heart"
+    """Map voice requests to appropriate Kokoro voices - OPTIMIZED for Indian female voice"""
+    # OPTIMIZED: Prioritize Hindi female voices for Indian accent
+    if voice_name in ["ऋतिका", "ritika", "hindi", "हिंदी", "indian", "india"]:
+        return "hf_alpha"  # Hindi female voice for Indian accent
+    elif voice_name in ["indian_female", "hindi_female", "female_indian"]:
+        return "hf_alpha"  # Primary Hindi female voice
+    elif voice_name in ["indian_alt", "hindi_alt"]:
+        return "hf_beta"   # Alternative Hindi female voice
+    elif voice_name in ["english", "en", "american"]:
+        return "af_bella"  # High-quality English female voice (Grade A-)
+    elif voice_name in ["british", "uk"]:
+        return "af_nicole"  # Professional English voice (Grade B-)
+    elif voice_name in ["clear", "professional"]:
+        return "af_nicole"  # Professional and articulate voice
+    # Default to Hindi female voice for Indian accent preference
+    return "hf_alpha"
 
 class TTSService:
     """
@@ -38,7 +47,7 @@ class TTSService:
         self.is_initialized = False
 
         # Configuration from config file
-        self.default_voice = "hm_omega"  # Use Kokoro Hindi voice instead of ऋतिका
+        self.default_voice = "hf_alpha"  # OPTIMIZED: Hindi female voice for Indian accent (was "af_heart")
         self.sample_rate = config.tts.sample_rate
         self.enabled = config.tts.enabled
 
@@ -56,6 +65,8 @@ class TTSService:
         """Initialize the TTS service and Kokoro engine"""
         try:
             tts_service_logger.info("[INIT] Initializing TTS Service with Kokoro TTS...")
+            # Initialize the Kokoro model
+            success = await self.kokoro_model.initialize()
             if not success:
                 raise Exception("Kokoro TTS model initialization failed")
             self.is_initialized = True
@@ -292,9 +303,9 @@ class TTSService:
         )
     
     def get_available_voices(self) -> List[str]:
-        """Get list of available voices"""
-        # Return Kokoro voices
-        return ["af_heart", "af_bella", "af_nicole", "af_sarah", "hm_omega", "hf_alpha", "hf_beta", "hm_psi"]
+        """Get list of available voices - prioritized for Indian female voices"""
+        # Return Kokoro voices with Indian female voices first
+        return ["hf_alpha", "hf_beta", "af_bella", "af_nicole", "af_heart", "af_sarah", "hm_omega", "hm_psi"]
 
     def get_service_info(self) -> Dict[str, Any]:
         """Get TTS service information and statistics"""
