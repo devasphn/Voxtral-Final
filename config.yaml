@@ -19,10 +19,10 @@ model:
   
 audio:
   sample_rate: 16000
-  chunk_size: 512  # OPTIMIZED: Reduced for lower latency (was 1024)
+  chunk_size: 256  # ULTRA-LOW LATENCY: Further reduced for <500ms latency
   format: "int16"
   channels: 1
-  frame_duration_ms: 20  # OPTIMIZED: Reduced for faster processing (was 30)
+  frame_duration_ms: 10  # ULTRA-LOW LATENCY: Minimal frame duration
 
 # ULTRA-LOW LATENCY VAD Configuration
 vad:

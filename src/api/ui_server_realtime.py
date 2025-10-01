@@ -532,10 +532,11 @@ async def home(request: Request):
         // Streaming mode settings
         let streamingModeEnabled = true;  // Default to streaming mode
 
-        // Audio playback queue management
+        // ULTRA-LOW LATENCY: Audio playback queue management
         let audioQueue = [];
         let isPlayingAudio = false;
         let currentAudio = null;
+        const MAX_QUEUE_SIZE = 2;  // CRITICAL: Limit queue size for <500ms latency
         
         // ULTRA-LOW LATENCY: Speech-to-Speech only variables
         let currentMode = 'speech_to_speech';  // FIXED: Default to speech-to-speech mode
@@ -1098,6 +1099,12 @@ async def home(request: Request):
             try {
                 log(`[AUDIO] Received TTS audio response for chunk ${data.chunk_id} (${data.audio_data.length} chars)`);
 
+                // ULTRA-LOW LATENCY: Implement queue size limit to prevent backlog
+                if (audioQueue.length >= MAX_QUEUE_SIZE) {
+                    log(`[AUDIO] Queue full (${audioQueue.length}), dropping oldest chunk`);
+                    audioQueue.shift(); // Remove oldest chunk
+                }
+
                 // Add to audio queue for sequential playback
                 audioQueue.push({
                     chunkId: data.chunk_id,
@@ -1140,7 +1147,7 @@ async def home(request: Request):
                 }
 
                 // ULTRA-LOW LATENCY: Minimal delay between audio chunks
-                await new Promise(resolve => setTimeout(resolve, 25));  // OPTIMIZED: Reduced from 100ms to 25ms
+                await new Promise(resolve => setTimeout(resolve, 10));  // CRITICAL: Reduced to 10ms for ultra-low latency
             }
 
             isPlayingAudio = false;

@@ -661,8 +661,8 @@ class VoxtralModel:
                         
                         # FIXED: Use standard Hugging Face VoxtralProcessor API
                         # Choose processing mode based on requirements
-                        # FIXED: Enhanced conversation prompt for coherent English responses
-                        conversation_prompt = prompt or "You are a helpful AI assistant. Listen carefully to the user's speech and respond naturally in clear, conversational English. Give a complete, coherent response that directly addresses what the user said. Speak as if you're having a friendly conversation. Keep your response natural and helpful."
+                        # CRITICAL FIX: Ultra-simple prompt to prevent garbled output
+                        conversation_prompt = prompt or "Listen to the audio and respond in simple, clear English. Give a short, helpful answer."
                         conversation = [
                             {
                                 "role": "user",
@@ -1123,17 +1123,17 @@ class VoxtralModel:
                             pad_token_id = None
 
                     generation_config = {
-                        'do_sample': True,
-                        'temperature': 0.7,  # FIXED: Increased for more diverse, natural generation
-                        'top_p': 0.9,        # FIXED: Increased for more natural language variety
-                        'top_k': 50,         # FIXED: Increased for better language diversity
-                        'repetition_penalty': 1.05,  # FIXED: Reduced to allow more natural repetition
-                        'length_penalty': 1.0,       # Neutral length penalty for faster generation
-                        'no_repeat_ngram_size': 2,    # FIXED: Reduced to allow more natural patterns
+                        'do_sample': False,  # CRITICAL FIX: Disable sampling for deterministic, coherent output
+                        'temperature': 0.1,  # CRITICAL FIX: Very low temperature for focused generation
+                        'top_p': 0.95,       # CRITICAL FIX: High top_p for quality while maintaining focus
+                        'top_k': 10,         # CRITICAL FIX: Low top_k for focused vocabulary
+                        'repetition_penalty': 1.1,   # CRITICAL FIX: Higher penalty to avoid repetition
+                        'length_penalty': 0.8,       # CRITICAL FIX: Slight penalty for conciseness
+                        'no_repeat_ngram_size': 3,    # CRITICAL FIX: Prevent 3-gram repetition
                         'pad_token_id': pad_token_id,
                         'eos_token_id': eos_token_id,
                         'use_cache': True,
-                        'early_stopping': False,      # FIXED: Disable early stopping for complete responses
+                        'early_stopping': True,       # CRITICAL FIX: Enable early stopping for efficiency
                         'forced_eos_token_id': None,  # Don't force early EOS
                         'forced_bos_token_id': None,  # FIXED: Ensure no forced language tokens
                         # FIXED: Removed output_* parameters to avoid conflicts with return_dict_in_generate
@@ -1158,13 +1158,17 @@ class VoxtralModel:
                                 raise ValueError(f"Expected tensor input, got {type(current_input_ids)}")
 
                             with torch.no_grad():
+                                # CRITICAL FIX: Create proper attention mask to prevent garbled output
+                                attention_mask = torch.ones_like(current_input_ids, dtype=torch.long, device=current_input_ids.device)
+
                                 # FIXED: Clean generation config to avoid parameter conflicts
                                 clean_generation_config = {k: v for k, v in generation_config.items()
                                                          if k not in ['output_scores', 'output_attentions', 'output_hidden_states', 'return_dict_in_generate']}
 
                                 outputs = self.model.generate(
                                     current_input_ids,
-                                    max_new_tokens=3,  # FIXED: Generate 3 tokens at a time for better flow (was 1)
+                                    attention_mask=attention_mask,  # CRITICAL FIX: Add attention mask
+                                    max_new_tokens=1,  # CRITICAL FIX: Generate 1 token at a time for ultra-low latency
                                     min_new_tokens=1,
                                     **clean_generation_config,
                                     # FIXED: Explicitly set these to avoid conflicts
@@ -1271,13 +1275,13 @@ class VoxtralModel:
                             realtime_logger.debug(f"Punctuation check error: {e}, token_text type: {type(token_text)}")
                             has_punctuation = False
 
-                        # FIXED: Phrase-based streaming for better quality and coherence
-                        # Send after 3-5 words for natural phrases, or any sentence ending
+                        # ULTRA-LOW LATENCY: Send after just 2 words for maximum speed
+                        # Send after 2 words for ultra-fast response, or any punctuation
                         sentence_ending = any(char in str(token_text) for char in ['.', '!', '?']) if isinstance(token_text, str) else False
                         comma_pause = any(char in str(token_text) for char in [',', ';']) if isinstance(token_text, str) else False
 
-                        if len(words) >= 5 or sentence_ending or comma_pause:
-                            # FIXED: Send meaningful phrases instead of individual words
+                        if len(words) >= 2 or sentence_ending or comma_pause:
+                            # ULTRA-LOW LATENCY: Send 3-word phrases for faster response
                             if sentence_ending:
                                 # Send complete sentence
                                 words_to_send = ' '.join(words)
@@ -1287,9 +1291,9 @@ class VoxtralModel:
                                 words_to_send = ' '.join(words)
                                 word_buffer = ""
                             else:
-                                # Send 3-5 words for natural phrases
-                                words_to_send = ' '.join(words[:5])
-                                word_buffer = ' '.join(words[5:]) if len(words) > 5 else ""
+                                # ULTRA-LOW LATENCY: Send 2 words for maximum speed
+                                words_to_send = ' '.join(words[:2])
+                                word_buffer = ' '.join(words[2:]) if len(words) > 2 else ""
 
                             if words_to_send.strip():
                                 # Clean the words before sending to remove formatting artifacts

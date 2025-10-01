@@ -51,15 +51,15 @@ class StreamingCoordinator:
             'total_session_latency': []
         }
         
-        # FIXED: Balanced streaming configuration for quality and speed
+        # ULTRA-LOW LATENCY: Maximum speed configuration for <500ms latency
         self.config = {
-            'words_trigger_threshold': 5,   # FIXED: Wait for 5 words for better coherence
-            'max_word_buffer_size': 20,     # FIXED: Larger buffer for complete phrases
-            'interruption_timeout_ms': 50,  # FIXED: Reasonable interruption detection
-            'tts_chunk_size_ms': 200,       # FIXED: Larger chunks for better audio quality
+            'words_trigger_threshold': 2,   # ULTRA-LOW: Just 2 words for maximum speed
+            'max_word_buffer_size': 8,      # ULTRA-LOW: Minimal buffer for lowest latency
+            'interruption_timeout_ms': 15,  # ULTRA-LOW: Fastest interruption detection
+            'tts_chunk_size_ms': 80,        # ULTRA-LOW: Smallest chunks for fastest audio
             'max_concurrent_tts': 1,        # FIXED: Sequential TTS to prevent overlap
-            'min_words_for_timeout': 3,     # FIXED: Minimum 3 words before timeout
-            'timeout_threshold_ms': 1000    # FIXED: Wait longer for complete thoughts
+            'min_words_for_timeout': 1,     # ULTRA-LOW: Minimum 1 word before timeout
+            'timeout_threshold_ms': 300     # ULTRA-LOW: Fastest timeout for maximum responsiveness
         }
         
         # Callbacks for external integration
