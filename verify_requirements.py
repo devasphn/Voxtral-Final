@@ -28,18 +28,18 @@ class RequirementsVerifier:
             "warnings": []
         }
         
-        # Define package categories and their requirements
+        # Define package categories and their minimum requirements (matching requirements.txt)
         self.package_categories = {
             "core_packages": [
                 ("torch", "2.4.1", "PyTorch with CUDA support"),
-                ("torchvision", "0.19.1", "PyTorch vision utilities"),
                 ("torchaudio", "2.4.1", "PyTorch audio processing")
+                # Note: torchvision is optional for voice AI, not required
             ],
             "ai_packages": [
-                ("transformers", "4.45.2", "Hugging Face Transformers"),
-                ("accelerate", "0.24.1", "Hugging Face Accelerate"),
-                ("tokenizers", "0.15.0", "Fast tokenizers"),
-                ("huggingface_hub", "0.25.1", "Hugging Face Hub")
+                ("transformers", "4.56.0", "Hugging Face Transformers (Voxtral compatible)"),
+                ("accelerate", "0.25.0", "Hugging Face Accelerate"),
+                ("tokenizers", "0.20.0", "Fast tokenizers"),
+                ("huggingface_hub", "0.26.0", "Hugging Face Hub")
             ],
             "web_packages": [
                 ("fastapi", "0.104.1", "FastAPI web framework"),
@@ -56,8 +56,12 @@ class RequirementsVerifier:
             ],
             "utility_packages": [
                 ("pyyaml", "6.0.1", "YAML parser"),
-                ("psutil", "5.9.6", "System utilities"),
-                ("pillow", "10.1.0", "Image processing")
+                ("psutil", "5.9.6", "System utilities")
+                # Note: pillow is optional for voice AI, not required
+            ],
+            "optional_packages": [
+                ("torchvision", "0.19.1", "PyTorch vision utilities (optional)"),
+                ("pillow", "10.1.0", "Image processing (optional)")
             ]
         }
     
@@ -69,8 +73,12 @@ class RequirementsVerifier:
         
         for category, packages in self.package_categories.items():
             logger.info(f"\n📦 Verifying {category.replace('_', ' ').title()}...")
-            category_passed = self._verify_category(category, packages)
-            all_passed = all_passed and category_passed
+            is_optional = category == "optional_packages"
+            category_passed = self._verify_category(category, packages, is_optional)
+
+            # Optional packages don't affect overall pass/fail status
+            if not is_optional:
+                all_passed = all_passed and category_passed
         
         # Additional checks
         self._verify_cuda_support()
@@ -79,10 +87,10 @@ class RequirementsVerifier:
         
         return all_passed
     
-    def _verify_category(self, category: str, packages: List[Tuple[str, str, str]]) -> bool:
+    def _verify_category(self, category: str, packages: List[Tuple[str, str, str]], is_optional: bool = False) -> bool:
         """Verify a category of packages"""
         category_passed = True
-        
+
         for package_name, expected_version, description in packages:
             try:
                 # Import the package
@@ -111,15 +119,24 @@ class RequirementsVerifier:
                     self.results["warnings"].append(f"{package_name} version mismatch")
                     
             except ImportError as e:
-                logger.error(f"  ❌ {package_name} - NOT INSTALLED - {description}")
-                self.results[category][package_name] = {
-                    "status": "missing",
-                    "error": str(e),
-                    "expected": expected_version,
-                    "description": description
-                }
-                self.results["errors"].append(f"{package_name} not installed")
-                category_passed = False
+                if is_optional:
+                    logger.info(f"  ℹ️  {package_name} - OPTIONAL (not installed) - {description}")
+                    self.results[category][package_name] = {
+                        "status": "optional_missing",
+                        "error": str(e),
+                        "expected": expected_version,
+                        "description": description
+                    }
+                else:
+                    logger.error(f"  ❌ {package_name} - NOT INSTALLED - {description}")
+                    self.results[category][package_name] = {
+                        "status": "missing",
+                        "error": str(e),
+                        "expected": expected_version,
+                        "description": description
+                    }
+                    self.results["errors"].append(f"{package_name} not installed")
+                    category_passed = False
                 
             except Exception as e:
                 logger.error(f"  ❌ {package_name} - ERROR: {e}")
@@ -135,18 +152,40 @@ class RequirementsVerifier:
         return category_passed
     
     def _is_version_compatible(self, actual: str, expected: str) -> bool:
-        """Check if version is compatible (allowing patch version differences)"""
+        """Check if version meets minimum requirement (>=)"""
         if actual == "unknown":
             return False
-        
+
         try:
-            # Extract major.minor from both versions
-            actual_parts = actual.split('.')[:2]
-            expected_parts = expected.split('.')[:2]
-            
-            return actual_parts == expected_parts
-        except:
+            # Parse version numbers for comparison
+            actual_version = self._parse_version(actual)
+            expected_version = self._parse_version(expected)
+
+            # Check if actual version is >= expected version
+            return actual_version >= expected_version
+        except Exception as e:
+            logger.debug(f"Version comparison failed: {e}")
             return actual == expected
+
+    def _parse_version(self, version_str: str) -> tuple:
+        """Parse version string into comparable tuple"""
+        # Remove any extra suffixes (like +cu121)
+        clean_version = version_str.split('+')[0]
+
+        # Split by dots and convert to integers
+        parts = []
+        for part in clean_version.split('.'):
+            try:
+                parts.append(int(part))
+            except ValueError:
+                # Handle non-numeric parts (like 'rc1')
+                parts.append(0)
+
+        # Ensure at least 3 parts (major, minor, patch)
+        while len(parts) < 3:
+            parts.append(0)
+
+        return tuple(parts)
     
     def _verify_cuda_support(self):
         """Verify CUDA support"""
