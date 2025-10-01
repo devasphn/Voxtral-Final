@@ -39,18 +39,24 @@ class AudioProcessor:
         self.processing_history = deque(maxlen=100)
         self.chunk_counter = 0
 
-        # OPTIMIZED VAD SETTINGS - Enhanced for real-time responsiveness
-        self.vad_threshold = 0.012           # Slightly more sensitive RMS threshold
-        self.min_voice_duration_ms = 200     # REDUCED: Faster trigger (was 400ms)
-        self.min_silence_duration_ms = 800   # REDUCED: Faster processing (was 1200ms)
-        self.energy_threshold = 2e-6         # Slightly more sensitive energy threshold
-        self.zero_crossing_threshold = 0.25  # Slightly more permissive ZCR
-        self.spectral_centroid_threshold = 350  # More sensitive spectral detection
+        # ULTRA-LOW LATENCY VAD SETTINGS - Optimized for <500ms response
+        self.vad_threshold = 0.008           # CRITICAL FIX: More sensitive for faster detection
+        self.min_voice_duration_ms = 100     # ULTRA-LOW: Immediate trigger (was 200ms)
+        self.min_silence_duration_ms = 400   # ULTRA-LOW: Faster processing (was 800ms)
+        self.energy_threshold = 1e-6         # CRITICAL FIX: More sensitive energy detection
+        self.zero_crossing_threshold = 0.3   # CRITICAL FIX: More permissive for speech
+        self.spectral_centroid_threshold = 250  # CRITICAL FIX: More sensitive spectral detection
+        self.noise_floor_threshold = 5e-7   # CRITICAL FIX: Noise floor detection for quality
         
         # Silence detection counters
         self.consecutive_silent_chunks = 0
         self.consecutive_voice_chunks = 0
         self.last_voice_activity = False
+
+        # CRITICAL FIX: Audio quality validation for ASR hallucination reduction
+        self.quality_validation_enabled = True
+        self.min_signal_to_noise_ratio = 3.0  # Minimum SNR for quality audio
+        self.max_clipping_ratio = 0.05        # Maximum 5% clipping allowed
         
         # Ensure n_fft is sufficient for n_mels
         min_n_fft = 2 * (self.n_mels - 1)
@@ -80,7 +86,46 @@ class AudioProcessor:
         audio_logger.info(f"   [WINDOW] Window length: {self.win_length}")
         audio_logger.info(f"   [VAD]  VAD threshold: {self.vad_threshold}")
         audio_logger.info(f"   [MUTE] Energy threshold: {self.energy_threshold}")
-    
+
+    def validate_audio_quality(self, audio_data: np.ndarray) -> dict:
+        """
+        CRITICAL FIX: Audio quality validation to reduce ASR hallucinations
+        Checks for noise, clipping, and signal quality before processing
+        """
+        try:
+            # Calculate signal-to-noise ratio estimate
+            signal_power = np.mean(audio_data ** 2)
+            noise_estimate = np.mean(np.abs(np.diff(audio_data))) ** 2  # High-frequency noise estimate
+            snr_estimate = signal_power / (noise_estimate + 1e-10)
+
+            # Check for clipping
+            max_amplitude = np.max(np.abs(audio_data))
+            clipping_ratio = np.sum(np.abs(audio_data) > 0.95) / len(audio_data)
+
+            # Check for silence or very low signal
+            is_too_quiet = signal_power < self.noise_floor_threshold
+
+            # Overall quality assessment
+            is_good_quality = (
+                snr_estimate >= self.min_signal_to_noise_ratio and
+                clipping_ratio <= self.max_clipping_ratio and
+                not is_too_quiet
+            )
+
+            return {
+                'is_good_quality': is_good_quality,
+                'snr_estimate': snr_estimate,
+                'clipping_ratio': clipping_ratio,
+                'signal_power': signal_power,
+                'max_amplitude': max_amplitude,
+                'is_too_quiet': is_too_quiet,
+                'quality_score': min(1.0, snr_estimate / 10.0) * (1.0 - clipping_ratio)
+            }
+
+        except Exception as e:
+            audio_logger.warning(f"[WARN] Audio quality validation failed: {e}")
+            return {'is_good_quality': True, 'quality_score': 0.5}  # Default to acceptable
+
     def detect_voice_activity(self, audio_data: np.ndarray, chunk_id: int = None) -> dict:
         """
         PRODUCTION Voice Activity Detection with multiple metrics
@@ -90,10 +135,13 @@ class AudioProcessor:
         """
         try:
             chunk_id = chunk_id or self.chunk_counter
-            
+
+            # CRITICAL FIX: Audio quality validation before VAD processing
+            quality_info = self.validate_audio_quality(audio_data) if self.quality_validation_enabled else {'is_good_quality': True}
+
             # Calculate RMS energy
             rms_energy = np.sqrt(np.mean(audio_data ** 2))
-            
+
             # Calculate total energy
             total_energy = np.sum(audio_data ** 2)
             

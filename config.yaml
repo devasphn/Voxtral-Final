@@ -50,7 +50,7 @@ streaming:
 tts:
   engine: "kokoro"
   default_voice: "hf_alpha"  # OPTIMIZED: Hindi female voice for Indian accent (was "af_heart")
-  sample_rate: 24000
+  sample_rate: 16000  # CRITICAL FIX: Standardized to 16kHz to match audio pipeline
   enabled: true
   # Kokoro TTS settings
   voice: "hf_alpha"  # OPTIMIZED: Hindi female voice for Indian accent English (was "af_heart")

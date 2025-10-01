@@ -12,6 +12,7 @@ from threading import Lock
 from collections import deque
 import soundfile as sf
 import io
+import librosa  # CRITICAL FIX: Add librosa for real-time resampling
 
 from src.utils.config import config
 
@@ -43,22 +44,58 @@ class KokoroTTSModel:
         self.speed = config.tts.speed
         self.lang_code = config.tts.lang_code
 
-        # STARTUP-OPTIMIZED: Balance quality and startup speed for Indian female voice
-        self.chunk_size = 3072  # STARTUP-OPTIMIZED: Balanced chunks for speed+quality (was 2048)
-        self.max_text_length = 600  # STARTUP-OPTIMIZED: Balanced for context+speed (was 750)
-        self.streaming_chunk_size = 1536  # STARTUP-OPTIMIZED: Balanced chunks (was 1024)
+        # ULTRA-LOW LATENCY: Optimized for sub-500ms response time
+        self.chunk_size = 1024   # ULTRA-LOW: Smaller chunks for faster processing
+        self.max_text_length = 200  # ULTRA-LOW: Shorter text for faster synthesis
+        self.streaming_chunk_size = 512  # ULTRA-LOW: Minimal chunks for immediate response
         self.enable_streaming_optimizations = True
-        self.prefill_audio_buffer = False  # STARTUP-OPTIMIZED: Disable for faster startup (was True)
-        self.use_fast_synthesis = True  # STARTUP-OPTIMIZED: Enable for faster startup (was False)
-        self.min_chunk_size_for_split = 3072  # STARTUP-OPTIMIZED: Higher threshold for speed (was 2048)
+        self.prefill_audio_buffer = False  # ULTRA-LOW: No buffering for immediate response
+        self.use_fast_synthesis = True    # ULTRA-LOW: Maximum speed synthesis
+        self.min_chunk_size_for_split = 1024  # ULTRA-LOW: Lower threshold for faster splitting
+
+        # CRITICAL FIX: Target audio chunk duration for ultra-low latency
+        self.target_chunk_duration_ms = 300  # Target 300ms chunks (was 1680ms)
+        self.max_chunk_duration_ms = 500     # Maximum 500ms chunks
         
+        # CRITICAL FIX: Audio pipeline standardization
+        self.target_sample_rate = 16000  # Standardized sample rate for entire pipeline
+        self.native_sample_rate = self.sample_rate  # Original Kokoro sample rate
+
         tts_logger.info(f"[AUDIO] KokoroTTSModel initialized with device: {self.device}")
         tts_logger.info(f"   [MIC] Voice: {self.voice}, Speed: {self.speed}, Lang: {self.lang_code}")
+        tts_logger.info(f"   [SAMPLE] Native: {self.native_sample_rate}Hz, Target: {self.target_sample_rate}Hz")
 
         # OPTIMIZED: Use Hindi language code for Indian accent
         if self.lang_code == "a":
             self.lang_code = "h"  # Change to Hindi for Indian accent
             tts_logger.info(f"   [OPTIMIZED] Language code updated to: {self.lang_code} (Hindi for Indian accent)")
+
+    def _resample_audio(self, audio_data: np.ndarray, source_sr: int, target_sr: int) -> np.ndarray:
+        """
+        CRITICAL FIX: Real-time audio resampling for sample rate standardization
+        Converts audio from source sample rate to target sample rate
+        """
+        if source_sr == target_sr:
+            return audio_data
+
+        try:
+            # Use librosa for high-quality resampling
+            resampled_audio = librosa.resample(
+                audio_data.astype(np.float32),
+                orig_sr=source_sr,
+                target_sr=target_sr,
+                res_type='kaiser_fast'  # Fast, high-quality resampling
+            )
+
+            tts_logger.debug(f"[RESAMPLE] Audio resampled from {source_sr}Hz to {target_sr}Hz")
+            tts_logger.debug(f"   [SHAPE] Original: {audio_data.shape}, Resampled: {resampled_audio.shape}")
+
+            return resampled_audio.astype(np.float32)
+
+        except Exception as e:
+            tts_logger.error(f"[ERROR] Audio resampling failed: {e}")
+            # Fallback: return original audio (may cause issues but prevents crash)
+            return audio_data
 
     def _process_emotional_expressions(self, text: str) -> str:
         """
@@ -244,20 +281,36 @@ class KokoroTTSModel:
                     if i % 10 == 0:
                         tts_logger.debug(f"   [EMOJI] Generated chunk {i}: {len(audio)} samples")
 
-                    # QUALITY-OPTIMIZED: Allow more chunks for better quality
-                    if len(text) < 30 and i >= 8:  # For very short text, allow more chunks
+                    # ULTRA-LOW LATENCY: Dynamic chunk limiting based on target duration
+                    current_duration_ms = (total_samples / self.target_sample_rate) * 1000
+                    if current_duration_ms >= self.target_chunk_duration_ms:
+                        tts_logger.debug(f"   [CHUNK] Reached target duration: {current_duration_ms:.1f}ms")
+                        break
+
+                    # ULTRA-LOW LATENCY: Hard limit to prevent oversized chunks
+                    if current_duration_ms >= self.max_chunk_duration_ms:
+                        tts_logger.debug(f"   [CHUNK] Hit maximum duration limit: {current_duration_ms:.1f}ms")
                         break
             
             # Concatenate all audio chunks
             if audio_chunks:
                 final_audio = np.concatenate(audio_chunks)
                 tts_logger.debug(f"   [EMOJI] Concatenated {len(audio_chunks)} chunks into {len(final_audio)} samples")
+
+                # CRITICAL FIX: Resample audio to standardized 16kHz if needed
+                if self.native_sample_rate != self.target_sample_rate:
+                    final_audio = self._resample_audio(
+                        final_audio,
+                        self.native_sample_rate,
+                        self.target_sample_rate
+                    )
+                    tts_logger.debug(f"   [RESAMPLE] Audio resampled to {self.target_sample_rate}Hz")
             else:
                 final_audio = np.array([])
                 tts_logger.warning(f"[WARN] No audio generated for chunk {chunk_id}")
             
             synthesis_time = (time.time() - synthesis_start_time) * 1000
-            audio_duration_s = len(final_audio) / self.sample_rate if len(final_audio) > 0 else 0
+            audio_duration_s = len(final_audio) / self.target_sample_rate if len(final_audio) > 0 else 0
             
             # Track performance metrics
             performance_stats = {
@@ -275,7 +328,7 @@ class KokoroTTSModel:
             
             return {
                 'audio_data': final_audio,
-                'sample_rate': self.sample_rate,
+                'sample_rate': self.target_sample_rate,  # CRITICAL FIX: Return standardized sample rate
                 'synthesis_time_ms': synthesis_time,
                 'chunk_id': chunk_id,
                 'text_length': len(text),
@@ -284,7 +337,9 @@ class KokoroTTSModel:
                 'is_empty': False,
                 'voice_used': voice,
                 'speed_used': speed,
-                'performance_stats': performance_stats
+                'performance_stats': performance_stats,
+                'native_sample_rate': self.native_sample_rate,
+                'target_sample_rate': self.target_sample_rate
             }
             
         except Exception as e:
@@ -431,12 +486,14 @@ class KokoroTTSModel:
             bytes: Complete WAV file as bytes
         """
         try:
-            # WAV file parameters
-            sample_rate = self.sample_rate
+            # CRITICAL FIX: WAV file parameters with standardized sample rate
+            sample_rate = self.target_sample_rate  # Use standardized 16kHz
             num_channels = 1  # Mono
             bits_per_sample = 16
             byte_rate = sample_rate * num_channels * bits_per_sample // 8
             block_align = num_channels * bits_per_sample // 8
+
+            tts_logger.debug(f"[WAV] Creating header with sample_rate={sample_rate}Hz")
 
             # Convert PCM data to bytes
             pcm_bytes = audio_pcm.tobytes()
