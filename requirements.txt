@@ -38,8 +38,7 @@ python-multipart>=0.0.6
 aiofiles>=23.2.1
 httpx>=0.25.2
 
-# Audio processing and system utilities (Compatible versions)
-pyaudio>=0.2.14
+# System utilities (pyaudio removed for RunPod compatibility)
 pillow>=10.1.0
 
 # Configuration and utilities (Compatible versions)

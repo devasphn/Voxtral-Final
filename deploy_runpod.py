@@ -147,19 +147,19 @@ def start_server(port=8000):
         return False
     
     # Start the server
-    command = f"python -m uvicorn src.api.ui_server_simple:app --host 0.0.0.0 --port {port} --workers 1"
-    
+    command = f"python -m uvicorn src.api.ui_server_realtime:app --host 0.0.0.0 --port {port} --workers 1"
+
     logger.info(f"   Command: {command}")
     logger.info(f"   🌐 Server will be available at:")
-    
+
     if Path("/workspace").exists():
         # RunPod environment
         logger.info(f"   📱 Web Interface: https://[POD_ID]-{port}.proxy.runpod.net")
-        logger.info(f"   🔌 WebSocket: wss://[POD_ID]-8765.proxy.runpod.net")
+        logger.info(f"   🔌 WebSocket: Embedded in main server (no separate port needed)")
     else:
         # Local environment
         logger.info(f"   📱 Web Interface: http://localhost:{port}")
-        logger.info(f"   🔌 WebSocket: ws://localhost:8765")
+        logger.info(f"   🔌 WebSocket: Embedded in main server (no separate port needed)")
     
     logger.info("   💡 Replace [POD_ID] with your actual RunPod pod ID")
     logger.info("   🛑 Press Ctrl+C to stop the server")
@@ -228,7 +228,7 @@ def main():
             start_server()
         else:
             logger.info("💡 To start the server manually, run:")
-            logger.info("   python -m uvicorn src.api.ui_server_simple:app --host 0.0.0.0 --port 8000")
+            logger.info("   python -m uvicorn src.api.ui_server_realtime:app --host 0.0.0.0 --port 8000")
     except KeyboardInterrupt:
         logger.info("\n🛑 Deployment interrupted by user")
     

@@ -470,20 +470,22 @@ async def home(request: Request):
         function detectEnvironment() {
             const hostname = window.location.hostname;
             const protocol = window.location.protocol;
-            
+            const port = window.location.port;
+
             if (hostname.includes('proxy.runpod.net')) {
                 const wsProtocol = protocol === 'https:' ? 'wss:' : 'ws:';
                 wsUrl = `${wsProtocol}//${hostname}/ws`;
                 document.getElementById('envInfo') && (document.getElementById('envInfo').textContent = 'RunPod Cloud (HTTP Proxy)');
             } else if (hostname === 'localhost' || hostname === '127.0.0.1') {
-                wsUrl = `ws://${hostname}:8000/ws`;
+                const wsProtocol = protocol === 'https:' ? 'wss:' : 'ws:';
+                wsUrl = `${wsProtocol}//${hostname}:${port || '8000'}/ws`;
                 document.getElementById('envInfo') && (document.getElementById('envInfo').textContent = 'Local Development');
             } else {
                 const wsProtocol = protocol === 'https:' ? 'wss:' : 'ws:';
-                wsUrl = `${wsProtocol}//${hostname}/ws`;
+                wsUrl = `${wsProtocol}//${hostname}${port ? ':' + port : ''}/ws`;
                 document.getElementById('envInfo') && (document.getElementById('envInfo').textContent = 'Custom Deployment');
             }
-            
+
             log(`WebSocket URL detected: ${wsUrl}`);
         }
         

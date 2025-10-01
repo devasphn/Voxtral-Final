@@ -1,11 +1,11 @@
 # Configuration for Voxtral Real-time Streaming (FIXED)
 server:
   host: "0.0.0.0"
-  http_port: 8000
+  http_port: 8000  # Main UI server with embedded WebSocket at /ws
   health_port: 8005
-  tcp_ports:
-    - 8765
-    - 8766
+  tcp_ports:  # Optional separate services (not needed for main WebSocket)
+    - 8765  # Separate WebSocket server (optional)
+    - 8766  # TCP server (optional)
   
 model:
   name: "mistralai/Voxtral-Mini-3B-2507"
