@@ -7,8 +7,8 @@ torch==2.4.1+cu121
 torchaudio==2.4.1+cu121
 torchvision==0.19.1+cu121
 
-# Transformers with Voxtral support (Latest Stable)
-transformers==4.46.2
+# Transformers with Voxtral support (Voxtral requires >= 4.54.0)
+transformers==4.56.2
 huggingface-hub==0.26.2
 accelerate==1.1.1
 tokenizers==0.20.3
@@ -17,10 +17,10 @@ tokenizers==0.20.3
 mistral-common[audio]==1.8.1
 
 # Kokoro TTS (Latest from hexgrad/Kokoro-82M)
-kokoro==1.0.0
+kokoro
 
 # Audio Processing (Optimized versions)
-librosa==0.10.2
+librosa==0.10.1
 soundfile==0.12.1
 numpy==1.26.4
 scipy==1.14.1

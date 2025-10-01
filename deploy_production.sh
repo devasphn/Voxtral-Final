@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# 🚀 ENHANCED PRODUCTION DEPLOYMENT SCRIPT FOR RUNPOD
-# Voxtral + Orpheus TTS Speech-to-Speech System
-# Comprehensive deployment with system packages, cleanup, and file audit
+# 🚀 PRODUCTION DEPLOYMENT SCRIPT FOR RUNPOD
+# Voxtral + Kokoro TTS Ultra-Low Latency Voice Agent
+# Optimized for RunPod infrastructure with <500ms end-to-end latency
 
 set -e
 
@@ -11,30 +11,18 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
-PURPLE='\033[0;35m'
-CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 # Global variables
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LOG_FILE="$SCRIPT_DIR/logs/deployment.log"
-CLEANUP_LOG="$SCRIPT_DIR/logs/cleanup.log"
-AUDIT_LOG="$SCRIPT_DIR/logs/file_audit.log"
-BACKUP_DIR="$SCRIPT_DIR/backup_$(date +%Y%m%d_%H%M%S)"
+LOG_FILE="/workspace/Voxtral-Final/logs/deployment.log"
 
 # Create log directory
-mkdir -p "$SCRIPT_DIR/logs"
+mkdir -p "/workspace/Voxtral-Final/logs"
 
-# Enhanced logging functions
+# Logging functions
 log() {
     local message="[$(date +'%Y-%m-%d %H:%M:%S')] INFO: $1"
     echo -e "${BLUE}$message${NC}"
-    echo "$message" >> "$LOG_FILE"
-}
-
-warn() {
-    local message="[$(date +'%Y-%m-%d %H:%M:%S')] WARN: $1"
-    echo -e "${YELLOW}$message${NC}"
     echo "$message" >> "$LOG_FILE"
 }
 
@@ -50,60 +38,66 @@ success() {
     echo "$message" >> "$LOG_FILE"
 }
 
-audit() {
-    local message="[$(date +'%Y-%m-%d %H:%M:%S')] AUDIT: $1"
-    echo -e "${PURPLE}$message${NC}"
-    echo "$message" >> "$AUDIT_LOG"
-}
-
-cleanup_log() {
-    local message="[$(date +'%Y-%m-%d %H:%M:%S')] CLEANUP: $1"
-    echo -e "${CYAN}$message${NC}"
-    echo "$message" >> "$CLEANUP_LOG"
-}
-
-# Enhanced error handling with rollback capability
+# Error handling
 handle_error() {
     local exit_code=$?
     local line_number=$1
     error "Script failed at line $line_number with exit code $exit_code"
-
-    if [ -d "$BACKUP_DIR" ]; then
-        warn "Backup directory exists at: $BACKUP_DIR"
-        warn "You can restore files if needed"
-    fi
-
-    log "Deployment failed. Check logs at: $LOG_FILE"
+    error "Deployment failed. Check logs at: $LOG_FILE"
     exit $exit_code
 }
 
 # Set error trap
 trap 'handle_error $LINENO' ERR
 
-# System package installation for Ubuntu/RunPod
-install_system_packages() {
-    log "🔧 Installing system packages for speech-to-speech system..."
+# Step 1: Navigate to workspace
+navigate_to_workspace() {
+    log "📁 Step 1: Navigating to workspace..."
+    cd /workspace
+    success "Navigated to /workspace"
+}
 
-    # Check if running as root or with sudo access
-    if [ "$EUID" -eq 0 ]; then
-        SUDO=""
-    elif command -v sudo &> /dev/null; then
-        SUDO="sudo"
-    else
-        error "This script requires root access or sudo privileges for system package installation"
-        exit 1
+# Step 2: Clone repository
+clone_repository() {
+    log "📥 Step 2: Cloning Voxtral-Final repository..."
+    if [ -d "Voxtral-Final" ]; then
+        log "Repository already exists, removing old version..."
+        rm -rf Voxtral-Final
     fi
+    git clone https://github.com/devasphn/Voxtral-Final.git
+    success "Repository cloned successfully"
+}
+
+# Step 3: Navigate to project directory
+navigate_to_project() {
+    log "📂 Step 3: Navigating to project directory..."
+    cd Voxtral-Final
+    success "Navigated to Voxtral-Final directory"
+}
+
+# Step 4: Create Python virtual environment
+create_virtual_environment() {
+    log "🐍 Step 4: Creating Python virtual environment..."
+    python3 -m venv venv
+    success "Virtual environment created successfully"
+}
+
+# Step 5: Activate virtual environment
+activate_virtual_environment() {
+    log "⚡ Step 5: Activating virtual environment..."
+    source venv/bin/activate
+    success "Virtual environment activated"
+}
+
+# Step 6: Install system dependencies
+install_system_packages() {
+    log "📦 Step 6: Installing system dependencies..."
 
     # Update package lists
-    log "Updating package lists..."
-    $SUDO apt update || {
-        error "Failed to update package lists"
-        exit 1
-    }
+    apt update
 
-    # Install build tools and development packages
-    log "Installing build tools and development packages..."
-    $SUDO apt install -y \
+    # Install essential build tools
+    apt install -y \
         build-essential \
         cmake \
         git \
@@ -111,32 +105,18 @@ install_system_packages() {
         wget \
         unzip \
         tree \
-        htop \
-        software-properties-common \
-        apt-transport-https \
-        ca-certificates \
-        gnupg \
-        lsb-release || {
-        error "Failed to install build tools"
-        exit 1
-    }
+        htop
 
     # Install Python development packages
-    log "Installing Python development packages..."
-    $SUDO apt install -y \
-        python3 \
+    apt install -y \
         python3-dev \
         python3-pip \
         python3-venv \
         python3-setuptools \
-        python3-wheel || {
-        error "Failed to install Python development packages"
-        exit 1
-    }
+        python3-wheel
 
     # Install audio system packages
-    log "Installing audio system packages..."
-    $SUDO apt install -y \
+    apt install -y \
         libasound2-dev \
         portaudio19-dev \
         libsndfile1-dev \
@@ -147,92 +127,177 @@ install_system_packages() {
         libswresample-dev \
         ffmpeg \
         pulseaudio \
-        alsa-utils || {
-        error "Failed to install audio system packages"
-        exit 1
-    }
+        alsa-utils
 
-    # Install additional libraries for ML/AI
-    log "Installing additional ML/AI libraries..."
-    $SUDO apt install -y \
+    # Install ML/AI libraries
+    apt install -y \
         libopenblas-dev \
         liblapack-dev \
         libhdf5-dev \
-        pkg-config || {
-        warn "Some ML/AI libraries failed to install - continuing anyway"
-    }
+        pkg-config
 
-    # Verify CUDA installation (if available)
-    if command -v nvidia-smi &> /dev/null; then
-        log "NVIDIA GPU detected, checking CUDA installation..."
-        nvidia-smi
-
-        # Check if CUDA toolkit is needed
-        if ! command -v nvcc &> /dev/null; then
-            warn "CUDA compiler not found. Installing CUDA toolkit..."
-            $SUDO apt install -y nvidia-cuda-toolkit || {
-                warn "CUDA toolkit installation failed - PyTorch will handle CUDA"
-            }
-        fi
-    else
-        warn "No NVIDIA GPU detected. System will run on CPU (not recommended for production)"
-    fi
-
-    success "System packages installed successfully"
+    success "System dependencies installed successfully"
 }
 
-# Check if HF_TOKEN is set
-check_hf_token() {
+# Step 7: Install Python packages
+install_python_packages() {
+    log "🐍 Step 7: Installing Python packages from requirements.txt..."
+
+    # Upgrade pip first
+    python -m pip install --upgrade pip setuptools wheel
+
+    # Install PyTorch with CUDA support
+    pip install torch==2.4.1+cu121 torchaudio==2.4.1+cu121 torchvision==0.19.1+cu121 --extra-index-url https://download.pytorch.org/whl/cu121
+
+    # Install remaining requirements
+    pip install -r requirements.txt
+
+    success "Python packages installed successfully"
+}
+
+# Step 8: Pre-download models
+predownload_models() {
+    log "📥 Step 8: Pre-downloading models..."
+
+    # Check if HF_TOKEN is set
     if [ -z "$HF_TOKEN" ]; then
         error "HF_TOKEN environment variable is not set!"
         echo "Please set your HuggingFace token:"
         echo "export HF_TOKEN='your_token_here'"
         exit 1
     fi
-    success "HuggingFace token is configured"
+
+    # Create model cache directory
+    mkdir -p model_cache
+
+    # Download Voxtral model
+    log "Downloading Voxtral model..."
+    python3 -c "
+import os
+os.environ['HF_TOKEN'] = '$HF_TOKEN'
+try:
+    from transformers import VoxtralForConditionalGeneration, AutoProcessor
+    print('Downloading Voxtral model...')
+    processor = AutoProcessor.from_pretrained('mistralai/Voxtral-Mini-3B-2507', cache_dir='./model_cache')
+    model = VoxtralForConditionalGeneration.from_pretrained('mistralai/Voxtral-Mini-3B-2507', cache_dir='./model_cache', torch_dtype='auto', device_map='auto')
+    print('✅ Voxtral model cached successfully')
+except Exception as e:
+    print(f'❌ Voxtral download failed: {e}')
+    exit(1)
+"
+
+    # Download Kokoro TTS model
+    log "Downloading Kokoro TTS model..."
+    python3 -c "
+try:
+    import kokoro
+    print('✅ Kokoro TTS package available')
+except Exception as e:
+    print(f'❌ Kokoro TTS import failed: {e}')
+    exit(1)
+"
+
+    success "Models pre-downloaded successfully"
 }
 
-# Comprehensive file audit function
-perform_file_audit() {
-    log "🔍 Performing comprehensive file audit..."
+# Step 9: Run health checks
+run_health_checks() {
+    log "🏥 Step 9: Running health checks..."
 
-    audit "Starting file audit of repository: $SCRIPT_DIR"
-    audit "Audit log: $AUDIT_LOG"
+    # Check Python environment
+    log "Checking Python environment..."
+    python3 -c "
+import sys
+print(f'Python version: {sys.version}')
+print(f'Python executable: {sys.executable}')
+"
 
-    # Initialize counters
-    local total_files=0
-    local essential_files=0
-    local duplicate_files=0
-    local problematic_files=0
-    local unnecessary_files=0
+    # Check critical imports
+    log "Checking critical package imports..."
+    python3 -c "
+try:
+    import torch
+    print(f'✅ PyTorch {torch.__version__} - CUDA available: {torch.cuda.is_available()}')
+    if torch.cuda.is_available():
+        print(f'   GPU: {torch.cuda.get_device_name(0)}')
+        print(f'   VRAM: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f}GB')
+except ImportError as e:
+    print(f'❌ PyTorch import failed: {e}')
+    exit(1)
 
-    # Define file categories
-    declare -a ESSENTIAL_FILES=(
-        "src/"
-        "requirements.txt"
-        "README.md"
-        "PRODUCTION_RUNPOD_DEPLOYMENT.md"
-        "deploy_production.sh"
-        "test_production_system.py"
-        ".env.example"
-        ".gitignore"
-        "TECHNICAL_AUDIT_REPORT.md"
-    )
+try:
+    import transformers
+    print(f'✅ Transformers {transformers.__version__}')
+except ImportError as e:
+    print(f'❌ Transformers import failed: {e}')
+    exit(1)
 
-    declare -a DUPLICATE_FILES=(
-        "ENHANCED_RUNPOD_DEPLOYMENT.md"
-        "PERFECT_RUNPOD_COMMANDS.md"
-        "RUNPOD_PRODUCTION_GUIDE.md"
-        "SPEECH_TO_SPEECH_IMPLEMENTATION.md"
-        "setup_runpod_enhanced.sh"
-        "setup_runpod_perfect.sh"
-        "start_perfect.sh"
-        "deploy_speech_to_speech.sh"
-        "setup.sh"
-        "install_kokoro.sh"
-        "cleanup.sh"
-        "run_realtime.sh"
-    )
+try:
+    import fastapi
+    print(f'✅ FastAPI {fastapi.__version__}')
+except ImportError as e:
+    print(f'❌ FastAPI import failed: {e}')
+    exit(1)
+
+try:
+    import kokoro
+    print(f'✅ Kokoro TTS available')
+except ImportError as e:
+    print(f'❌ Kokoro TTS import failed: {e}')
+    exit(1)
+"
+
+    # Test configuration loading
+    log "Testing configuration system..."
+    python3 -c "
+try:
+    from src.utils.config import config
+    print('✅ Configuration loaded successfully')
+    print(f'   Server HTTP port: {config.server.http_port}')
+    print(f'   Model name: {config.model.name}')
+    print(f'   TTS engine: {config.tts.engine}')
+except Exception as e:
+    print(f'❌ Configuration error: {e}')
+    exit(1)
+"
+
+    success "Health checks completed successfully"
+}
+
+# Main deployment function
+main() {
+    log "🚀 Starting PRODUCTION deployment of Voxtral + Kokoro TTS system"
+    log "📝 Deployment logs: $LOG_FILE"
+
+    # Execute deployment steps in order
+    navigate_to_workspace
+    clone_repository
+    navigate_to_project
+    create_virtual_environment
+    activate_virtual_environment
+    install_system_packages
+    install_python_packages
+    predownload_models
+    run_health_checks
+
+    success "🎉 DEPLOYMENT COMPLETED SUCCESSFULLY!"
+    echo ""
+    echo "📊 System Information:"
+    echo "   🌐 UI: http://localhost:8000"
+    echo "   🔌 WebSocket: ws://localhost:8765"
+    echo "   ❤️ Health: http://localhost:8000/health"
+    echo ""
+    echo "📝 Next Steps:"
+    echo "   1. Set your HuggingFace token: export HF_TOKEN='your_token_here'"
+    echo "   2. Start the system: python3 -m src.api.ui_server_realtime"
+    echo "   3. Access the UI at http://localhost:8000"
+    echo "   4. Monitor GPU usage: watch -n 1 nvidia-smi"
+    echo ""
+    echo "📋 Logs available at: $LOG_FILE"
+}
+
+# Run main function
+main "$@"
 
     declare -a TEST_FILES_TO_REMOVE=(
         "test_emotional_tts.py"
