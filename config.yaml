@@ -60,38 +60,45 @@ tts:
   voices:
     english: ["af_heart", "af_bella", "af_nicole", "af_sarah"]  # Kokoro English voices
     hindi: ["hm_omega", "hf_alpha", "hf_beta", "hm_psi"]  # Kokoro Hindi voices
-  # OPTIMIZED Performance settings for cold start reduction
+  # ULTRA-LOW LATENCY Performance settings
   performance:
-    batch_size: 1  # Direct integration uses batch_size=1
-    max_queue_size: 4  # OPTIMIZED: Reduced for faster startup (was 8)
-    num_workers: 1  # OPTIMIZED: Single worker for faster startup (was 2)
-    target_latency_ms: 200  # OPTIMIZED: Balanced target (was 150)
+    batch_size: 1  # Single batch for lowest latency
+    max_queue_size: 2  # OPTIMIZED: Minimal queue for ultra-low latency
+    num_workers: 1  # Single worker for consistency
+    target_latency_ms: 150  # TARGET: <200ms chunking requirement
 
 # ULTRA-LOW LATENCY Speech-to-Speech pipeline configuration
 speech_to_speech:
   enabled: true
-  latency_target_ms: 250  # QUALITY-BALANCED: Balanced target for clarity (was 100)
-  buffer_size: 4096  # QUALITY-BALANCED: Larger buffer for quality (was 2048)
+  latency_target_ms: 200  # TARGET: <200ms TTS chunking as per requirements
+  buffer_size: 2048  # OPTIMIZED: Smaller buffer for lower latency
   output_format: "wav"
-  quality: "high"  # OPTIMIZED: Restored for better audio clarity (was "medium")
-  emotional_expression: true  # OPTIMIZED: Enabled for natural speech (was false)
+  quality: "balanced"  # OPTIMIZED: Balanced for speed and quality
+  emotional_expression: true
 
   # STREAMING CONFIGURATION
   streaming:
     enabled: true
-    mode: "sentence_level"  # OPTIMIZED: Sentence level for efficiency (was "word_level")
-    words_trigger_threshold: 3  # OPTIMIZED: Start TTS after 3 words (was 2)
-    max_tokens: 150  # FIXED: Increased for complete responses (was 50)
+    mode: "word_level"  # OPTIMIZED: Word level for ultra-low latency
+    words_trigger_threshold: 2  # OPTIMIZED: Start TTS after 2 words for faster response
+    max_tokens: 100  # OPTIMIZED: Shorter responses for faster processing
     interruption_detection: true
-    interruption_threshold_ms: 50  # OPTIMIZED: Faster interruption detection (was 100)
+    interruption_threshold_ms: 50  # OPTIMIZED: Fast interruption detection
 
-  # VOICE AGENT OPTIMIZATION
+  # VOICE AGENT OPTIMIZATION - Aligned with <500ms end-to-end target
   voice_agent:
-    first_word_target_ms: 150  # OPTIMIZED: Realistic target for cold start (was 100)
-    word_to_audio_target_ms: 200  # OPTIMIZED: Realistic target for quality (was 150)
-    interruption_response_ms: 100  # OPTIMIZED: Realistic interruption response (was 50)
-    concurrent_tts_streams: 1  # OPTIMIZED: Single stream for faster startup (was 2)
+    first_word_target_ms: 100  # TARGET: First word within 100ms
+    word_to_audio_target_ms: 150  # TARGET: Word to audio within 150ms
+    interruption_response_ms: 50  # TARGET: Fast interruption response
+    concurrent_tts_streams: 1  # OPTIMIZED: Single stream for consistency
   
+# UI Configuration
+ui:
+  mode: "simple"  # "simple" or "advanced" - simple has only Connect, Start, Status
+  theme: "dark"   # "dark" or "light"
+  show_latency_details: true
+  enable_performance_indicators: true
+
 logging:
   level: "INFO"
   format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"

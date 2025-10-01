@@ -73,10 +73,17 @@ class PerformanceConfig(BaseModel):
     }
     optimization_level: str = "balanced"  # "performance", "balanced", "memory_efficient"
 
+class UIConfig(BaseModel):
+    """UI configuration for web interface"""
+    mode: str = "simple"  # "simple" or "advanced"
+    theme: str = "dark"   # "dark" or "light"
+    show_latency_details: bool = True
+    enable_performance_indicators: bool = True
+
 class LoggingConfig(BaseModel):
     level: str = "INFO"
     format: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    file: str = "/workspace/logs/voxtral_streaming.log"
+    file: str = "./logs/voxtral_streaming.log"
 
 class TTSVoicesConfig(BaseModel):
     english: List[str] = ["af_heart", "af_bella", "af_nicole", "af_sarah"]  # Kokoro English voices
@@ -131,6 +138,7 @@ class Config(BaseSettings):
     logging: LoggingConfig = LoggingConfig()
     tts: TTSConfig = TTSConfig()
     performance: PerformanceConfig = PerformanceConfig()
+    ui: UIConfig = UIConfig()
     speech_to_speech: SpeechToSpeechConfig = SpeechToSpeechConfig()
     
     # Pydantic v2 settings configuration with fallback

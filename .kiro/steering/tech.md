@@ -9,11 +9,11 @@
 - **Pydantic v2**: Data validation and settings management with `pydantic-settings`
 
 ### AI/ML Stack
-- **PyTorch**: 2.1.0+ with CUDA 12.1 support
-- **Transformers**: 4.54.0+ (Hugging Face)
+- **PyTorch**: 2.4.1+ with CUDA 12.1 support
+- **Transformers**: 4.45.2+ (Hugging Face)
 - **Mistral Voxtral**: `mistralai/Voxtral-Mini-3B-2507` for speech recognition
-- **Orpheus TTS**: High-quality text-to-speech synthesis
-- **SNAC**: Audio conversion model (`hubertsiuzdak/snac_24khz`)
+- **Kokoro TTS**: High-quality text-to-speech synthesis with 8 optimized voices
+- **Audio Processing**: librosa, soundfile, numpy for audio pipeline
 
 ### Audio Processing
 - **librosa**: Audio analysis and feature extraction

@@ -16,6 +16,14 @@ from src.models.kokoro_model_realtime import kokoro_model
 from src.models.audio_processor_realtime import AudioProcessor
 from src.utils.config import config
 
+# Import ultra-low latency pipeline
+try:
+    from src.pipeline.ultra_low_latency_pipeline import ultra_low_latency_pipeline
+    ULTRA_PIPELINE_AVAILABLE = True
+except ImportError:
+    ULTRA_PIPELINE_AVAILABLE = False
+    pipeline_logger.warning("Ultra-low latency pipeline not available, using standard pipeline")
+
 # Setup logging
 pipeline_logger = logging.getLogger("speech_to_speech")
 
@@ -39,6 +47,7 @@ class SpeechToSpeechPipeline:
         # ULTRA-LOW LATENCY: Pipeline configuration
         self.latency_target_ms = config.speech_to_speech.latency_target_ms
         self.enable_emotional_tts = False  # DISABLED: Skip emotional analysis for maximum speed
+        self.use_ultra_pipeline = ULTRA_PIPELINE_AVAILABLE and self.latency_target_ms <= 500
 
         # ULTRA-LOW LATENCY: Simplified conversation context
         self.conversation_context = deque(maxlen=5)  # Reduced from 10 for faster processing
@@ -57,24 +66,108 @@ class SpeechToSpeechPipeline:
         pipeline_logger.info("[INIT] Initializing Speech-to-Speech pipeline...")
         
         try:
-            # Initialize Voxtral model (STT)
-            if not voxtral_model.is_initialized:
-                pipeline_logger.info("[INPUT] Initializing Voxtral STT model...")
-                await voxtral_model.initialize()
-            
-            # Initialize Kokoro model (TTS)
-            if not kokoro_model.is_initialized:
-                pipeline_logger.info("[AUDIO] Initializing Kokoro TTS model...")
-                await kokoro_model.initialize()
-            
+            # Initialize ultra-low latency pipeline if available and needed
+            if self.use_ultra_pipeline:
+                if not ultra_low_latency_pipeline.is_initialized:
+                    pipeline_logger.info("⚡ Initializing Ultra-Low Latency Pipeline...")
+                    await ultra_low_latency_pipeline.initialize()
+                pipeline_logger.info("⚡ Ultra-low latency pipeline ready")
+            else:
+                # Initialize standard components
+                # Initialize Voxtral model (STT)
+                if not voxtral_model.is_initialized:
+                    pipeline_logger.info("🎤 Initializing Voxtral STT model...")
+                    await voxtral_model.initialize()
+
+                # Initialize Kokoro model (TTS)
+                if not kokoro_model.is_initialized:
+                    pipeline_logger.info("🔊 Initializing Kokoro TTS model...")
+                    await kokoro_model.initialize()
+
             self.is_initialized = True
             init_time = time.time() - start_time
-            pipeline_logger.info(f"[SUCCESS] Speech-to-Speech pipeline fully initialized in {init_time:.2f}s!")
-            pipeline_logger.info("[SPEAK] Ready for conversational AI interactions")
+            pipeline_mode = "Ultra-Low Latency" if self.use_ultra_pipeline else "Standard"
+            pipeline_logger.info(f"✅ Speech-to-Speech pipeline fully initialized in {init_time:.2f}s ({pipeline_mode} mode)!")
+            pipeline_logger.info("🗣️  Ready for conversational AI interactions")
             
         except Exception as e:
             pipeline_logger.error(f"[ERROR] Failed to initialize Speech-to-Speech pipeline: {e}")
             raise
+
+    async def process_speech_to_speech(self, audio_data: np.ndarray, voice_id: str = "af_bella") -> Dict[str, Any]:
+        """
+        ULTRA-LOW LATENCY Speech-to-Speech Processing
+        Target: <500ms end-to-end latency
+        """
+        if not self.is_initialized:
+            await self.initialize()
+
+        start_time = time.time()
+        pipeline_logger.info(f"🎯 Starting speech-to-speech processing...")
+
+        try:
+            # Use ultra-low latency pipeline if available
+            if self.use_ultra_pipeline:
+                result = await ultra_low_latency_pipeline.process_audio_to_audio(audio_data)
+
+                total_time = (time.time() - start_time) * 1000
+
+                if result.get("success"):
+                    # Update conversation context
+                    self.conversation_context.append({
+                        "user": result.get("transcription", ""),
+                        "assistant": result.get("response_text", ""),
+                        "timestamp": time.time()
+                    })
+
+                    # Track performance
+                    self._track_pipeline_performance({
+                        "total_latency_ms": total_time,
+                        "success": True,
+                        "timestamp": start_time,
+                        "ultra_pipeline": True
+                    })
+
+                    pipeline_logger.info(f"⚡ Ultra-pipeline completed in {total_time:.1f}ms")
+
+                    return {
+                        "success": True,
+                        "transcription": result.get("transcription"),
+                        "response_text": result.get("response_text"),
+                        "audio_data": result.get("audio_data"),
+                        "latency_ms": total_time,
+                        "ultra_pipeline": True
+                    }
+                else:
+                    return result
+            else:
+                # Fallback to standard processing via process_conversation_turn
+                result = await self.process_conversation_turn(audio_data, voice_preference=voice_id)
+                return {
+                    "success": result.get("success", False),
+                    "transcription": result.get("transcription", ""),
+                    "response_text": result.get("response_text", ""),
+                    "audio_data": result.get("response_audio"),
+                    "latency_ms": result.get("total_latency_ms", 0)
+                }
+
+        except Exception as e:
+            total_time = (time.time() - start_time) * 1000
+            pipeline_logger.error(f"❌ Speech-to-speech processing failed: {e}")
+
+            # Track failed performance
+            self._track_pipeline_performance({
+                "total_latency_ms": total_time,
+                "success": False,
+                "error": str(e),
+                "timestamp": start_time
+            })
+
+            return {
+                "success": False,
+                "error": str(e),
+                "latency_ms": total_time
+            }
     
     async def process_conversation_turn(self, audio_data: np.ndarray, 
                                       conversation_id: str = None,
