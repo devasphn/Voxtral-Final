@@ -1,26 +1,26 @@
-# Voxtral + TTS Integrated Real-time Voice Application
+# Voxtral + Kokoro TTS Real-time Voice Agent
 
-A complete real-time voice AI system combining Mistral's Voxtral model for speech recognition with Orpheus TTS for high-quality speech synthesis. Features full-duplex voice conversation with pre-loaded models and optimized for RunPod deployment.
+An ultra-low latency voice AI system combining Mistral's Voxtral model for speech recognition with Kokoro TTS for high-quality speech synthesis. Optimized for <500ms end-to-end latency on RunPod infrastructure with HTTP/TCP-only networking.
 
 ## ✨ Features
 
-- **Complete Voice Pipeline**: Speech-to-Text → LLM → Text-to-Speech
-- **Real-time Processing**: End-to-end latency <500ms
-- **High-quality TTS**: Orpheus TTS with 24 voices across 8 languages
+- **Ultra-Low Latency Pipeline**: Speech-to-Text → LLM → Text-to-Speech in <500ms
+- **Real-time Chunked Streaming**: <200ms TTS chunking with continuous audio flow
+- **High-quality TTS**: Kokoro TTS with 8 optimized voices (Hindi + English)
 - **Pre-loaded Models**: Instant conversation startup (no loading delays)
 - **Voice Activity Detection**: Smart silence detection and processing
-- **WebSocket Streaming**: Real-time bidirectional audio communication
-- **Web Interface**: Modern UI with voice controls on port 8000
+- **WebSocket Streaming**: Real-time bidirectional audio communication (RunPod compatible)
+- **Simplified Web Interface**: Essential controls only (Connect, Start, Status)
 - **Health Monitoring**: Comprehensive system monitoring on port 8005
 - **GPU Optimized**: CUDA acceleration throughout the pipeline
-- **Production Ready**: Robust error handling and performance monitoring
+- **RunPod Ready**: Optimized for HTTP/TCP-only networking constraints
 
 ## 🏗️ Architecture
 
 ```
-User Voice → VAD → STT (Voxtral) → LLM → TTS (Orpheus) → Audio Output
+User Voice → VAD → STT (Voxtral) → LLM → TTS (Kokoro) → Audio Output
                     ↓
-              WebSocket Communication
+              WebSocket Communication (HTTP/TCP Only)
                     ↓
 ┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
 │   Web UI        │    │  Health Check    │    │  TCP Server     │
@@ -32,16 +32,16 @@ User Voice → VAD → STT (Voxtral) → LLM → TTS (Orpheus) → Audio Output
                     ┌─────────────────────┐
                     │  Pre-loaded Models  │
                     │  • Voxtral STT      │
-                    │  • Orpheus TTS      │
-                    │  • SNAC Audio       │
+                    │  • Kokoro TTS       │
+                    │  • Audio Pipeline   │
                     └─────────────────────┘
 ```
 
 ### Key Components
 
-- **Web Interface**: Real-time voice conversation UI
+- **Web Interface**: Simplified real-time voice conversation UI
 - **STT Engine**: Voxtral model for speech recognition
-- **TTS Engine**: Orpheus with 24 voices across 8 languages
+- **TTS Engine**: Kokoro TTS with 8 optimized voices (Hindi female preferred)
 - **VAD System**: Smart voice activity detection
 - **Model Pre-loading**: Instant startup with cached models
 

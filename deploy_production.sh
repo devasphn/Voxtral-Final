@@ -547,19 +547,24 @@ except Exception as e:
     exit(1)
 "
     
-    # Download Orpheus model
-    log "Downloading Orpheus model..."
+    # Download Kokoro TTS model
+    log "Downloading Kokoro TTS model..."
     python3 -c "
 import os
 os.environ['HF_TOKEN'] = '$HF_TOKEN'
 try:
-    from orpheus_tts import OrpheusModel
-    print('Downloading Orpheus model...')
-    model = OrpheusModel(model_name='canopylabs/orpheus-tts-0.1-finetune-prod')
-    print('✅ Orpheus model cached successfully')
+    from src.utils.kokoro_model_manager import KokoroModelManager
+    print('Downloading Kokoro TTS model...')
+    manager = KokoroModelManager(cache_dir='./model_cache')
+    success = manager.download_model()
+    if success:
+        print('✅ Kokoro TTS model cached successfully')
+    else:
+        print('❌ Kokoro TTS download failed')
+        exit(1)
 except Exception as e:
-    print(f'⚠️ Orpheus model download failed: {e}')
-    print('Model will be downloaded on first use')
+    print(f'❌ Kokoro TTS download failed: {e}')
+    exit(1)
 "
     
     success "Model pre-downloading completed"

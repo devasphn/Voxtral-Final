@@ -31,29 +31,31 @@ class ServerConfig(BaseModel):
 
 class ModelConfig(BaseModel):
     name: str = "mistralai/Voxtral-Mini-3B-2507"
-    cache_dir: str = "/workspace/model_cache"
+    cache_dir: str = "./model_cache"  # FIXED: Match config.yaml
     device: str = "cuda"
-    torch_dtype: str = "bfloat16"
+    torch_dtype: str = "float16"  # FIXED: Match config.yaml for maximum performance
     max_memory_per_gpu: str = "6GB"
+    require_auth_token: bool = True  # ADDED: Match config.yaml
+    use_safetensors: bool = True  # ADDED: Match config.yaml
 
 class AudioConfig(BaseModel):
     sample_rate: int = 16000
-    chunk_size: int = 1024
+    chunk_size: int = 256  # FIXED: Match config.yaml ultra-low latency setting
     format: str = "int16"
     channels: int = 1
-    frame_duration_ms: int = 30
+    frame_duration_ms: int = 10  # FIXED: Match config.yaml ultra-low latency setting
 
 class SpectrogramConfig(BaseModel):
     n_mels: int = 128
     hop_length: int = 160
     win_length: int = 400
-    n_fft: int = 400
+    n_fft: int = 1024  # FIXED: Match config.yaml to resolve mel filterbank warning
 
 class StreamingConfig(BaseModel):
     max_connections: int = 100
-    buffer_size: int = 4096
+    buffer_size: int = 1024  # FIXED: Match config.yaml ultra-optimized setting
     timeout_seconds: int = 300
-    latency_target_ms: int = 300  # Updated to match sub-300ms requirement
+    latency_target_ms: int = 50  # FIXED: Match config.yaml ultra-optimized target
     
 class PerformanceConfig(BaseModel):
     """Performance monitoring and optimization configuration"""
@@ -99,14 +101,14 @@ class GPUMemoryConfig(BaseModel):
     enable_monitoring: bool = True
 
 class TTSConfig(BaseModel):
-    engine: str = "kokoro"  # Changed to Kokoro TTS only
-    default_voice: str = "hm_omega"  # Kokoro Hindi voice (replaces ऋतिका)
-    sample_rate: int = 24000
+    engine: str = "kokoro"  # Kokoro TTS only
+    default_voice: str = "hf_alpha"  # FIXED: Hindi female voice for Indian accent (was "hm_omega")
+    sample_rate: int = 16000  # FIXED: Standardized to 16kHz to match audio pipeline (was 24000)
     enabled: bool = True
     # Kokoro TTS settings
-    voice: str = "hm_omega"  # Kokoro Hindi voice
+    voice: str = "hf_alpha"  # FIXED: Hindi female voice for Indian accent English (was "hm_omega")
     speed: float = 1.0  # Kokoro speech speed
-    lang_code: str = "h"  # Kokoro language code (h=Hindi, a=American English, b=British English)
+    lang_code: str = "h"  # Hindi language code for Indian accent
     voices: TTSVoicesConfig = TTSVoicesConfig()
     performance: TTSPerformanceConfig = TTSPerformanceConfig()
     gpu_memory: GPUMemoryConfig = GPUMemoryConfig()

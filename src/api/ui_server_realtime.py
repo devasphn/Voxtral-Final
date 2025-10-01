@@ -341,161 +341,44 @@ async def home(request: Request):
     <div class="connection-status disconnected" id="connectionStatus">
         Disconnected
     </div>
-    
+
     <div class="container">
-        <h1>[VAD] Voxtral Conversational AI</h1>
-        <p style="text-align: center; opacity: 0.8;">Intelligent conversation with Voice Activity Detection & Speech-to-Speech</p>
-        
-        <div class="vad-indicator">
-            <strong>[MIC] Voice Status:</strong>
-            <span class="vad-status vad-silence" id="vadStatus">Waiting</span>
-            <span>Live:</span>
-            <span class="realtime-indicator" id="realtimeIndicator"></span>
-        </div>
-        
+        <h1>Voxtral Voice Agent</h1>
+        <p style="text-align: center; opacity: 0.8;">Ultra-Low Latency Voice AI (&lt;500ms)</p>
+
         <div class="status" id="status">
-            Ready to connect. Click "Connect" to start conversation.
+            Ready to connect. Click "Connect" to start.
         </div>
-        
+
         <div class="controls">
             <button id="connectBtn" class="connect-btn" onclick="connect()">Connect</button>
-            <button id="streamBtn" class="stream-btn" onclick="startConversation()" disabled>Start Conversation</button>
-            <button id="stopBtn" class="stop-btn" onclick="stopConversation()" disabled>Stop Conversation</button>
-            <button id="speechToSpeechBtn" class="stream-btn" onclick="startSpeechToSpeech()" disabled>[SPEAK] Speech-to-Speech</button>
+            <button id="streamBtn" class="stream-btn" onclick="startConversation()" disabled>Start</button>
         </div>
 
-        <!-- ULTRA-LOW LATENCY: Simplified Speech-to-Speech Only Mode -->
-        <div class="audio-controls" style="justify-content: center; margin-bottom: 20px;">
-            <div style="text-align: center; padding: 15px; background: rgba(255, 255, 255, 0.1); border-radius: 10px;">
-                <strong>[SPEAK] Speech-to-Speech Conversation</strong>
-                <p style="margin: 5px 0; opacity: 0.8; font-size: 0.9em;">Ultra-low latency AI assistant ready for real-time voice conversation</p>
-            </div>
+        <div class="vad-indicator">
+            <strong>Status:</strong>
+            <span class="vad-status vad-silence" id="vadStatus">Waiting</span>
         </div>
 
-        <!-- Speech-to-Speech Controls (Always Visible) -->
-        <div class="audio-controls" id="speechToSpeechControls" style="display: flex; justify-content: center; margin-bottom: 20px;">
-            <div style="text-align: center; padding: 15px; background: rgba(255, 255, 255, 0.1); border-radius: 10px;">
-                <strong>[MIC] Voice Settings</strong>
-                <div style="margin: 10px 0; display: flex; gap: 15px; justify-content: center; flex-wrap: wrap;">
-                    <div>
-                        <label>Voice:</label>
-                        <select id="voiceSelect" onchange="updateVoiceSettings()">
-                            <option value="hf_alpha" selected>🇮🇳 Priya (Indian Female - Primary)</option>
-                            <option value="hf_beta">🇮🇳 Ananya (Indian Female - Alternative)</option>
-                            <option value="af_bella">🇺🇸 Bella (American Female - Warm)</option>
-                            <option value="af_nicole">🇺🇸 Nicole (American Female - Professional)</option>
-                            <option value="af_heart">🇺🇸 Heart (American Female - Calm)</option>
-                            <option value="af_sarah">🇺🇸 Sarah (American Female - Gentle)</option>
-                            <option value="af_sky">Sky (Bright & Happy)</option>
-                            <option value="am_adam">Adam (Male, Friendly)</option>
-                            <option value="am_michael">Michael (Male, Professional)</option>
-                            <option value="am_edward">Edward (Male, Calm)</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label>Speed:</label>
-                        <select id="speedSelect" onchange="updateVoiceSettings()">
-                            <option value="0.8">Slow</option>
-                            <option value="1.0" selected>Normal</option>
-                            <option value="1.2">Fast</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label>Mode:</label>
-                        <select id="streamingModeSelect" onchange="updateStreamingMode()">
-                            <option value="streaming" selected>[INIT] Streaming (Ultra-Low Latency)</option>
-                            <option value="conversation">[EMOJI] Regular (Standard)</option>
-                        </select>
-                    </div>
-                </div>
-            </div>
-        </div>
-        
         <div class="volume-meter">
             <div class="volume-bar" id="volumeBar"></div>
         </div>
-        
-        <div class="vad-stats" id="vadStats" style="display: none;">
-            <strong>VAD Statistics:</strong><br>
-            Speech Chunks: <span id="speechChunks">0</span> | 
-            Silence Chunks: <span id="silenceChunks">0</span> | 
-            Processing Rate: <span id="processingRate">0%</span>
-        </div>
-        
+
         <div class="metrics">
             <div class="metric">
                 <div class="metric-value" id="latencyMetric">-</div>
-                <div class="metric-label">Avg Latency (ms)</div>
+                <div class="metric-label">Latency (ms)</div>
             </div>
             <div class="metric">
                 <div class="metric-value" id="chunksMetric">0</div>
-                <div class="metric-label">Speech Processed</div>
-            </div>
-            <div class="metric">
-                <div class="metric-value" id="silenceSkipped">0</div>
-                <div class="metric-label">Silence Skipped</div>
-            </div>
-            <div class="metric">
-                <div class="metric-value" id="durationMetric">00:00</div>
-                <div class="metric-label">Conversation Duration</div>
+                <div class="metric-label">Processed</div>
             </div>
         </div>
         
         <div class="conversation" id="conversation" style="display: none;">
             <div id="conversationContent">
                 <div class="message ai-message">
-                    <div><strong>AI:</strong> Hello! I'm ready to have a conversation. I'll only respond when I detect speech, so there's no need to worry about background noise.</div>
-                    <div class="timestamp">Ready to chat with VAD enabled</div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Speech-to-Speech Conversation Display -->
-        <div class="conversation" id="speechToSpeechConversation" style="display: none;">
-            <div style="text-align: center; margin-bottom: 20px;">
-                <h3>[SPEAK] Speech-to-Speech Conversation</h3>
-                <p style="opacity: 0.8; font-size: 0.9em;">Speak naturally - I'll transcribe, respond, and speak back to you!</p>
-            </div>
-
-            <!-- Real-time Transcription Display -->
-            <div id="currentTranscription" style="background: rgba(0, 184, 148, 0.2); padding: 15px; border-radius: 10px; margin-bottom: 15px; display: none;">
-                <strong>[MIC] You said:</strong>
-                <div id="transcriptionText" style="font-style: italic; margin-top: 5px;"></div>
-                <div class="timestamp" id="transcriptionTime"></div>
-            </div>
-
-            <!-- AI Response Text Display -->
-            <div id="currentResponse" style="background: rgba(116, 185, 255, 0.2); padding: 15px; border-radius: 10px; margin-bottom: 15px; display: none;">
-                <strong>[EMOJI] AI Response:</strong>
-                <div id="responseText" style="margin-top: 5px;"></div>
-                <div class="timestamp" id="responseTime"></div>
-            </div>
-
-            <!-- Audio Playback Controls -->
-            <div id="audioPlayback" style="background: rgba(255, 255, 255, 0.1); padding: 15px; border-radius: 10px; margin-bottom: 15px; display: none;">
-                <strong>[SPEAKER] AI Speech:</strong>
-                <div style="margin-top: 10px;">
-                    <audio id="responseAudio" controls style="width: 100%; background: rgba(255, 255, 255, 0.1);">
-                        Your browser does not support the audio element.
-                    </audio>
-                </div>
-                <div style="margin-top: 10px; font-size: 0.9em; opacity: 0.8;">
-                    Voice: <span id="voiceUsed">-</span> | Speed: <span id="speedUsed">-</span> | Duration: <span id="audioDuration">-</span>
-                </div>
-            </div>
-
-            <!-- Processing Status -->
-            <div id="processingStatus" style="background: rgba(253, 203, 110, 0.2); padding: 15px; border-radius: 10px; margin-bottom: 15px; display: none;">
-                <strong>[FAST] Processing:</strong>
-                <div id="processingMessage" style="margin-top: 5px;">Initializing...</div>
-                <div class="timestamp" id="processingTime"></div>
-            </div>
-
-            <!-- Conversation History -->
-            <div id="speechToSpeechHistory">
-                <div class="message ai-message">
-                    <div><strong>AI:</strong> Hello! I'm ready for speech-to-speech conversation. Speak naturally and I'll respond with voice!</div>
-                    <div class="timestamp">Speech-to-Speech mode ready</div>
+                    <div><strong>AI:</strong> Ready for voice conversation.</div>
                 </div>
             </div>
         </div>
@@ -681,40 +564,18 @@ async def home(request: Request):
             }
         }
 
-        // Speech-to-Speech Functions
+        // Simplified voice settings - use defaults
         function updateMode() {
-            // ULTRA-LOW LATENCY: Fixed to speech-to-speech mode only
             currentMode = 'speech_to_speech';
-
-            const speechControls = document.getElementById('speechToSpeechControls');
-            const speechBtn = document.getElementById('speechToSpeechBtn');
-
-            // Always show speech-to-speech controls
-            speechControls.style.display = 'flex';
-            speechBtn.style.display = 'inline-block';
-
-            log('Mode: Ultra-low latency speech-to-speech conversation');
+            log('Mode: Ultra-low latency voice conversation');
         }
 
         function updateVoiceSettings() {
-            selectedVoice = document.getElementById('voiceSelect').value;
-            selectedSpeed = parseFloat(document.getElementById('speedSelect').value);
-
-            // Update description based on voice selection
-            const voiceSelect = document.getElementById('voiceSelect');
-            const selectedOption = voiceSelect.options[voiceSelect.selectedIndex];
-
-            if (selectedVoice === 'auto') {
-                log('Voice settings: Automatic emotional voice selection enabled');
-            } else {
-                log(`Voice settings updated: ${selectedVoice} (${selectedOption.text}), speed: ${selectedSpeed}`);
-            }
-        }
-
-        function updateStreamingMode() {
-            const streamingSelect = document.getElementById('streamingModeSelect');
-            const selectedMode = streamingSelect.value;
-            streamingModeEnabled = (selectedMode === 'streaming');
+            // Use default settings for simplicity
+            selectedVoice = 'hf_alpha';  // Default Hindi female voice
+            selectedSpeed = 1.0;         // Default speed
+            streamingModeEnabled = true; // Always use streaming mode
+            log('Voice settings: Using optimized defaults (Hindi female, normal speed)');
 
             const selectedOption = streamingSelect.options[streamingSelect.selectedIndex];
             log(`Streaming mode updated: ${selectedOption.text} (${streamingModeEnabled ? 'ENABLED' : 'DISABLED'})`);
@@ -727,57 +588,13 @@ async def home(request: Request):
             }
         }
 
-        function startSpeechToSpeech() {
-            if (currentMode === 'speech_to_speech') {
-                speechToSpeechActive = true;
-                currentConversationId = 'speech_' + Date.now();
-
-                // Show speech-to-speech conversation area
-                document.getElementById('conversation').style.display = 'none';
-                document.getElementById('speechToSpeechConversation').style.display = 'block';
-
-                // Update button states
-                document.getElementById('speechToSpeechBtn').disabled = true;
-                document.getElementById('streamBtn').disabled = true;
-                document.getElementById('stopBtn').disabled = false;
-
-                startConversation();
-                log('Speech-to-Speech mode activated');
-            }
-        }
-
-        function showProcessingStatus(stage, message) {
-            const statusDiv = document.getElementById('processingStatus');
-            const messageDiv = document.getElementById('processingMessage');
-            const timeDiv = document.getElementById('processingTime');
-
-            messageDiv.textContent = `${stage}: ${message}`;
-            timeDiv.textContent = new Date().toLocaleTimeString();
-            statusDiv.style.display = 'block';
+        // Simplified functions for essential UI operations
+        function showProcessingStatus(message) {
+            updateStatus(message, 'loading');
         }
 
         function hideProcessingStatus() {
-            document.getElementById('processingStatus').style.display = 'none';
-        }
-
-        function showTranscription(text, conversationId) {
-            const transcriptionDiv = document.getElementById('currentTranscription');
-            const textDiv = document.getElementById('transcriptionText');
-            const timeDiv = document.getElementById('transcriptionTime');
-
-            textDiv.textContent = text;
-            timeDiv.textContent = `Conversation ${conversationId} - ${new Date().toLocaleTimeString()}`;
-            transcriptionDiv.style.display = 'block';
-        }
-
-        function showResponseText(text, conversationId) {
-            const responseDiv = document.getElementById('currentResponse');
-            const textDiv = document.getElementById('responseText');
-            const timeDiv = document.getElementById('responseTime');
-
-            textDiv.textContent = text;
-            timeDiv.textContent = `Response generated - ${new Date().toLocaleTimeString()}`;
-            responseDiv.style.display = 'block';
+            updateStatus('Ready', 'success');
         }
 
         function showAudioPlayback(audioData, sampleRate, voice, speed, duration) {
