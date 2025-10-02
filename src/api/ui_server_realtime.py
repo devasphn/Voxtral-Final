@@ -353,11 +353,17 @@ async def home(request: Request):
         <div class="controls">
             <button id="connectBtn" class="connect-btn" onclick="connect()">Connect</button>
             <button id="streamBtn" class="stream-btn" onclick="startConversation()" disabled>Start</button>
+            <select id="streamingSelect" class="streaming-select" style="margin-left: 10px;">
+                <option value="enabled" selected>Streaming Enabled</option>
+                <option value="disabled">Streaming Disabled</option>
+                <option value="auto">Auto Mode</option>
+            </select>
         </div>
 
         <div class="vad-indicator">
             <strong>Status:</strong>
             <span class="vad-status vad-silence" id="vadStatus">Waiting</span>
+            <span class="realtime-indicator" id="realtimeIndicator"></span>
         </div>
 
         <div class="volume-meter">
@@ -499,22 +505,87 @@ async def home(request: Request):
         }
         
         function updateConnectionStatus(connected, streaming = false) {
-            const status = document.getElementById('connectionStatus');
-            const indicator = document.getElementById('realtimeIndicator');
+            console.log(`[Voxtral VAD] Updating connection status to: ${connected ? (streaming ? 'streaming' : 'connected') : 'disconnected'}`);
             
-            if (streaming) {
-                status.textContent = 'Conversing';
-                status.className = 'connection-status streaming';
-                indicator.classList.add('active');
-            } else if (connected) {
-                status.textContent = 'Connected';
-                status.className = 'connection-status connected';
-                indicator.classList.remove('active');
-            } else {
-                status.textContent = 'Disconnected';
-                status.className = 'connection-status disconnected';
-                indicator.classList.remove('active');
+            // Try multiple selectors to find status element
+            const statusSelectors = [
+                '#connectionStatus',
+                '.connection-status',
+                '[data-connection-status]',
+                '#status',
+                '.status'
+            ];
+            
+            let status = null;
+            for (const selector of statusSelectors) {
+                status = document.querySelector(selector);
+                if (status) {
+                    console.log(`[Voxtral VAD] Found status element with: ${selector}`);
+                    break;
+                }
             }
+            
+            // Create fallback element if none found
+            if (!status) {
+                console.warn('[Voxtral VAD] No status element found, creating fallback');
+                status = createStatusElement();
+            }
+            
+            // Try to find indicator element safely
+            const indicator = document.getElementById('realtimeIndicator') || 
+                             document.querySelector('.realtime-indicator') ||
+                             document.querySelector('[data-realtime-indicator]');
+            
+            // Safely update classList
+            if (status && status.classList) {
+                // Remove previous status classes
+                const statusClasses = ['connected', 'disconnected', 'streaming', 'error'];
+                statusClasses.forEach(cls => status.classList.remove(cls));
+                
+                if (streaming) {
+                    status.textContent = 'Conversing';
+                    status.classList.add('streaming');
+                    if (indicator && indicator.classList) indicator.classList.add('active');
+                } else if (connected) {
+                    status.textContent = 'Connected';
+                    status.classList.add('connected');
+                    if (indicator && indicator.classList) indicator.classList.remove('active');
+                } else {
+                    status.textContent = 'Disconnected';
+                    status.classList.add('disconnected');
+                    if (indicator && indicator.classList) indicator.classList.remove('active');
+                }
+            } else {
+                console.error('[Voxtral VAD] Could not update status element');
+            }
+        }
+
+        function createStatusElement() {
+            const statusDiv = document.createElement('div');
+            statusDiv.id = 'connectionStatus';
+            statusDiv.className = 'connection-status';
+            statusDiv.style.cssText = `
+                position: fixed;
+                top: 10px;
+                right: 10px;
+                padding: 8px 12px;
+                background-color: #2c3e50;
+                color: white;
+                border-radius: 6px;
+                font-family: 'Consolas', 'Monaco', monospace;
+                font-size: 11px;
+                font-weight: bold;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+                z-index: 10000;
+                min-width: 120px;
+                text-align: center;
+                border: 1px solid #34495e;
+            `;
+            
+            // Add to body
+            document.body.appendChild(statusDiv);
+            console.log('[Voxtral VAD] Created fallback status element');
+            return statusDiv;
         }
         
         function updateVadStatus(status, hasSpeech = false) {
@@ -573,20 +644,110 @@ async def home(request: Request):
         }
 
         function updateVoiceSettings() {
-            // Use default settings for simplicity
-            selectedVoice = 'hf_alpha';  // Default Hindi female voice
-            selectedSpeed = 1.0;         // Default speed
-            streamingModeEnabled = true; // Always use streaming mode
-            log('Voice settings: Using optimized defaults (Hindi female, normal speed)');
+            console.log('[Voxtral VAD] Updating voice settings with safety checks');
+            
+            try {
+                // Safe element selection with multiple fallbacks
+                const streamingSelect = document.getElementById('streamingSelect') || 
+                                       document.querySelector('.streaming-select') || 
+                                       document.querySelector('[data-streaming]') ||
+                                       createStreamingSelectElement();
+                
+                if (!streamingSelect) {
+                    console.warn('[Voxtral VAD] streamingSelect not found, using defaults');
+                    // Use default settings
+                    applyDefaultVoiceSettings();
+                    return;
+                }
+                
+                // Use default settings for simplicity
+                selectedVoice = 'hf_alpha';  // Default Hindi female voice
+                selectedSpeed = 1.0;         // Default speed
+                streamingModeEnabled = true; // Always use streaming mode
+                log('Voice settings: Using optimized defaults (Hindi female, normal speed)');
 
-            const selectedOption = streamingSelect.options[streamingSelect.selectedIndex];
-            log(`Streaming mode updated: ${selectedOption.text} (${streamingModeEnabled ? 'ENABLED' : 'DISABLED'})`);
+                // Safe access to select options
+                if (streamingSelect.options && streamingSelect.options.length > 0) {
+                    const selectedOption = streamingSelect.options[streamingSelect.selectedIndex];
+                    if (selectedOption) {
+                        log(`Streaming mode updated: ${selectedOption.text} (${streamingModeEnabled ? 'ENABLED' : 'DISABLED'})`);
+                    }
+                }
 
-            // Update status to reflect mode change
-            if (streamingModeEnabled) {
-                updateStatus('[INIT] Ultra-low latency streaming mode enabled', 'success');
-            } else {
-                updateStatus('[EMOJI] Regular conversation mode enabled', 'info');
+                // Update status to reflect mode change
+                if (streamingModeEnabled) {
+                    updateStatus('[INIT] Ultra-low latency streaming mode enabled', 'success');
+                } else {
+                    updateStatus('[EMOJI] Regular conversation mode enabled', 'info');
+                }
+                
+            } catch (error) {
+                console.error('[Voxtral VAD] Error in updateVoiceSettings:', error);
+                // Graceful degradation
+                applyDefaultVoiceSettings();
+            }
+        }
+
+        function applyDefaultVoiceSettings() {
+            console.log('[Voxtral VAD] Applying default voice settings');
+            const defaultSettings = {
+                voice: 'hf_alpha',
+                speed: 1.0,
+                language: 'hi',
+                streaming: true
+            };
+            
+            // Apply default configuration to your voice system
+            selectedVoice = defaultSettings.voice;
+            selectedSpeed = defaultSettings.speed;
+            streamingModeEnabled = defaultSettings.streaming;
+            
+            updateStatus('[INIT] Using default voice settings (Hindi female)', 'success');
+        }
+
+        function createStreamingSelectElement() {
+            console.log('[Voxtral VAD] Creating fallback streaming select element');
+            const select = document.createElement('select');
+            select.id = 'streamingSelect';
+            select.className = 'streaming-select';
+            select.innerHTML = `
+                <option value="enabled" selected>Streaming Enabled</option>
+                <option value="disabled">Streaming Disabled</option>
+                <option value="auto">Auto Mode</option>
+            `;
+            select.style.cssText = `
+                position: fixed;
+                top: 50px;
+                right: 10px;
+                padding: 5px;
+                background: white;
+                color: black;
+                border: 1px solid #ccc;
+                border-radius: 4px;
+                font-size: 12px;
+                z-index: 9999;
+            `;
+            
+            // Add to body
+            document.body.appendChild(select);
+            return select;
+        }
+
+        function updateStreamingMode() {
+            console.log('[Voxtral VAD] Updating streaming mode');
+            try {
+                const streamingSelect = document.getElementById('streamingSelect');
+                if (streamingSelect) {
+                    const mode = streamingSelect.value || 'enabled';
+                    streamingModeEnabled = (mode === 'enabled' || mode === 'auto');
+                    console.log(`[Voxtral VAD] Streaming mode set to: ${mode} (${streamingModeEnabled ? 'ENABLED' : 'DISABLED'})`);
+                } else {
+                    console.warn('[Voxtral VAD] Streaming select not found, defaulting to enabled');
+                    streamingModeEnabled = true;
+                }
+            } catch (error) {
+                console.error('[Voxtral VAD] Error updating streaming mode:', error);
+                streamingModeEnabled = true; // Default to enabled
             }
         }
 
@@ -713,33 +874,72 @@ async def home(request: Request):
             try {
                 updateStatus('Connecting to Voxtral conversational AI...', 'loading');
                 log('Attempting WebSocket connection...');
+                console.log('[Voxtral VAD] WebSocket URL detected:', wsUrl);
                 
                 ws = new WebSocket(wsUrl);
                 
-                ws.onopen = () => {
+                ws.onopen = (event) => {
+                    console.log('[Voxtral VAD] Connected! Ready to start conversation.');
                     updateStatus('Connected! Ready to start conversation.', 'success');
-                    updateConnectionStatus(true);
-                    document.getElementById('connectBtn').disabled = true;
-                    document.getElementById('streamBtn').disabled = false;
+                    // Safe status update
+                    try {
+                        updateConnectionStatus(true);
+                    } catch (error) {
+                        console.error('[Voxtral VAD] Error updating connection status:', error);
+                    }
+                    
+                    // Safe button updates
+                    const connectBtn = document.getElementById('connectBtn');
+                    const streamBtn = document.getElementById('streamBtn');
+                    if (connectBtn) connectBtn.disabled = true;
+                    if (streamBtn) streamBtn.disabled = false;
+                    
                     log('WebSocket connection established');
                 };
                 
                 ws.onmessage = (event) => {
-                    const data = JSON.parse(event.data);
-                    handleWebSocketMessage(data);
+                    try {
+                        const data = JSON.parse(event.data);
+                        console.log('[Voxtral VAD] Received message type:', data.type);
+                        
+                        if (data.type === 'connection') {
+                            console.log('[Voxtral VAD] Connected to Voxtral conversational AI with VAD');
+                        }
+                        
+                        handleWebSocketMessage(data);
+                        
+                    } catch (error) {
+                        console.error('[Voxtral VAD] Error parsing message:', error);
+                    }
                 };
                 
                 ws.onclose = (event) => {
+                    console.log(`[Voxtral VAD] WebSocket closed. Code: ${event.code}`);
                     updateStatus(`Disconnected from server (Code: ${event.code})`, 'error');
                     updateConnectionStatus(false);
                     updateVadStatus('waiting');
-                    document.getElementById('connectBtn').disabled = false;
-                    document.getElementById('streamBtn').disabled = true;
-                    document.getElementById('stopBtn').disabled = true;
+                    
+                    // Safe button updates
+                    const connectBtn = document.getElementById('connectBtn');
+                    const streamBtn = document.getElementById('streamBtn');
+                    const stopBtn = document.getElementById('stopBtn');
+                    if (connectBtn) connectBtn.disabled = false;
+                    if (streamBtn) streamBtn.disabled = true;
+                    if (stopBtn) stopBtn.disabled = true;
+                    
                     log(`WebSocket connection closed: ${event.code}`);
+                    
+                    // Auto-reconnect for abnormal closures
+                    if (event.code !== 1000) {
+                        setTimeout(() => {
+                            console.log('[Voxtral VAD] Attempting to reconnect...');
+                            connect();
+                        }, 3000);
+                    }
                 };
                 
                 ws.onerror = (error) => {
+                    console.error('[Voxtral VAD] WebSocket error:', error);
                     updateStatus('Connection error - check console for details', 'error');
                     updateConnectionStatus(false);
                     updateVadStatus('waiting');
@@ -748,7 +948,9 @@ async def home(request: Request):
                 };
                 
             } catch (error) {
+                console.error('[Voxtral VAD] Failed to create WebSocket:', error);
                 updateStatus('Failed to connect: ' + error.message, 'error');
+                updateConnectionStatus(false);
                 log('Connection failed: ' + error.message);
             }
         }
@@ -1646,11 +1848,47 @@ async def home(request: Request):
             log('[EMOJI] User interruption handled - cleared streaming state');
         }
 
-        // Initialize on page load
-        window.addEventListener('load', () => {
-            detectEnvironment();
+        // Safe initialization function
+        function initializeVoxtral() {
+            console.log('[Voxtral VAD] Mode: Ultra-low latency voice conversation');
+            console.log('[Voxtral VAD] Voice settings: Using optimized defaults (Hindi female, normal speed)');
+            
+            // Initialize environment detection
+            try {
+                detectEnvironment();
+            } catch (error) {
+                console.error('[Voxtral VAD] Environment detection failed:', error);
+            }
+            
+            // Initialize voice settings first
+            try {
+                updateMode();
+                updateVoiceSettings();
+                updateStreamingMode();
+            } catch (error) {
+                console.error('[Voxtral VAD] Voice settings initialization failed:', error);
+            }
+            
             updateStatus('Ready to connect for conversation with VAD');
-            log('Conversational application with VAD initialized');
+            console.log('[Voxtral VAD] Ready to connect for conversation with VAD');
+            console.log('[Voxtral VAD] Conversational application with VAD initialized');
+        }
+
+        // Initialize when DOM is ready
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initializeVoxtral);
+        } else {
+            // DOM already loaded
+            setTimeout(initializeVoxtral, 100);
+        }
+        
+        // Initialize on page load as fallback
+        window.addEventListener('load', () => {
+            // Only initialize if not already done
+            if (!window.voxtralInitialized) {
+                initializeVoxtral();
+                window.voxtralInitialized = true;
+            }
         });
         
         // Cleanup on page unload
@@ -1662,11 +1900,6 @@ async def home(request: Request):
                 ws.close();
             }
         });
-
-        // Initialize the interface
-        updateMode();
-        updateVoiceSettings();
-        updateStreamingMode();
     </script>
 </body>
 </html>
@@ -1742,6 +1975,39 @@ async def api_status():
             "timestamp": time.time(),
             "error": str(e),
             "integration_type": "kokoro_tts"
+        }, status_code=500)
+
+@app.get("/health")
+async def health_check():
+    """Simple health check endpoint"""
+    try:
+        unified_manager = get_unified_manager()
+        
+        # Basic health check
+        is_healthy = unified_manager.is_initialized
+        
+        if is_healthy:
+            return JSONResponse({
+                "status": "healthy",
+                "timestamp": time.time(),
+                "service": "voxtral-voice-ai",
+                "version": "2.2.0"
+            })
+        else:
+            return JSONResponse({
+                "status": "initializing",
+                "timestamp": time.time(),
+                "service": "voxtral-voice-ai",
+                "version": "2.2.0"
+            }, status_code=503)
+            
+    except Exception as e:
+        return JSONResponse({
+            "status": "error",
+            "timestamp": time.time(),
+            "service": "voxtral-voice-ai",
+            "version": "2.2.0",
+            "error": str(e)
         }, status_code=500)
 
 # WebSocket endpoint for CONVERSATIONAL streaming with VAD
