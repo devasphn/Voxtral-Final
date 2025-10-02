@@ -350,6 +350,13 @@ async def home(request: Request):
             Ready to connect. Click "Connect" to start.
         </div>
 
+        <div class="welcome-message" id="welcomeMessage" style="background: rgba(255,255,255,0.1); border-radius: 15px; padding: 20px; margin: 20px 0; display: block;">
+            <h3>🎙️ Welcome to Voxtral Voice AI!</h3>
+            <p><strong>Click "Connect" then "Start" to begin voice conversation</strong></p>
+            <p>This will enable your microphone and audio playback for natural conversation.</p>
+            <small>⚡ Ultra-low latency voice conversation powered by Mistral Voxtral Mini 3B</small>
+        </div>
+
         <div class="controls">
             <button id="connectBtn" class="connect-btn" onclick="connect()">Connect</button>
             <button id="streamBtn" class="stream-btn" onclick="startConversation()" disabled>Start</button>
@@ -395,7 +402,7 @@ async def home(request: Request):
     </div>
     
     <script>
-        // CRITICAL AUDIO FIX: VoxtralAudioManager for proper sample rate handling
+        // CRITICAL AUDIO FIX: VoxtralAudioManager with Chrome Autoplay Policy Fix
         class VoxtralAudioManager {
             constructor() {
                 // Standardize all sample rates to 16kHz to match Kokoro backend
@@ -404,7 +411,8 @@ async def home(request: Request):
                 this.audioQueue = [];
                 this.isPlaying = false;
                 this.isInitialized = false;
-                console.log('[Voxtral Audio Fix] Audio manager initialized');
+                this.userGestureReceived = false;
+                console.log('[Voxtral Audio Fix] Audio manager initialized with Chrome autoplay policy support');
             }
             
             async initializeAudioContext() {
@@ -415,24 +423,79 @@ async def home(request: Request):
                     });
                     
                     console.log(`[Voxtral Audio Fix] Audio context created with sample rate: ${this.audioContext.sampleRate}Hz`);
+                    console.log(`[Voxtral Audio Fix] Audio context state: ${this.audioContext.state}`);
                     
-                    // Resume context if suspended (browser autoplay policy)
+                    // Resume context if suspended (Chrome autoplay policy)
                     if (this.audioContext.state === 'suspended') {
+                        console.log('[Voxtral Audio Fix] Audio context suspended - attempting to resume...');
                         await this.audioContext.resume();
-                        console.log('[Voxtral Audio Fix] Audio context resumed');
+                        console.log(`[Voxtral Audio Fix] Audio context resumed - new state: ${this.audioContext.state}`);
                     }
                     
                     this.isInitialized = true;
+                    this.userGestureReceived = true;
                     return true;
                 } catch (error) {
                     console.error('[Voxtral Audio Fix] Audio context initialization failed:', error);
                     return false;
                 }
             }
+
+            async initializeWithUserGesture() {
+                if (this.userGestureReceived && this.isInitialized) {
+                    return true;
+                }
+                
+                console.log('[Voxtral Audio Fix] Initializing audio with user gesture for Chrome autoplay policy...');
+                
+                try {
+                    // This should be called from a user gesture (like button click)
+                    const success = await this.initializeAudioContext();
+                    if (success) {
+                        console.log('[Voxtral Audio Fix] ✅ Audio initialized successfully with user gesture');
+                        return true;
+                    } else {
+                        console.error('[Voxtral Audio Fix] ❌ Audio initialization failed even with user gesture');
+                        return false;
+                    }
+                } catch (error) {
+                    console.error('[Voxtral Audio Fix] User gesture audio initialization failed:', error);
+                    return false;
+                }
+            }
+
+            async ensureAudioReady() {
+                if (!this.isInitialized || !this.userGestureReceived) {
+                    console.log('[Voxtral Audio Fix] Audio not ready, attempting initialization...');
+                    return await this.initializeWithUserGesture();
+                }
+                
+                // Check if context is still suspended
+                if (this.audioContext && this.audioContext.state === 'suspended') {
+                    console.log('[Voxtral Audio Fix] Audio context suspended, attempting resume...');
+                    try {
+                        await this.audioContext.resume();
+                        console.log('[Voxtral Audio Fix] Audio context resumed successfully');
+                        return true;
+                    } catch (error) {
+                        console.error('[Voxtral Audio Fix] Failed to resume audio context:', error);
+                        return false;
+                    }
+                }
+                
+                return true;
+            }
             
             async processAudioChunk(base64Audio, chunkId) {
                 try {
                     console.log(`[Voxtral Audio Fix] Processing audio chunk ${chunkId} (${base64Audio.length} chars)`);
+                    
+                    // Ensure audio context is ready before processing
+                    const audioReady = await this.ensureAudioReady();
+                    if (!audioReady) {
+                        console.error(`[Voxtral Audio Fix] Audio context not ready for chunk ${chunkId}`);
+                        return;
+                    }
                     
                     // Convert base64 to ArrayBuffer
                     const binaryString = atob(base64Audio);
@@ -456,6 +519,12 @@ async def home(request: Request):
                     
                 } catch (error) {
                     console.error(`[Voxtral Audio Fix] Audio processing failed for chunk ${chunkId}:`, error);
+                    
+                    // If audio context is suspended, show helpful message
+                    if (error.message && error.message.includes('suspended')) {
+                        console.warn('[Voxtral Audio Fix] Audio context suspended - user interaction may be required');
+                        updateStatus('🔊 Click anywhere to enable audio playback', 'info');
+                    }
                 }
             }
             
@@ -1004,17 +1073,26 @@ async def home(request: Request):
             }, 10000);
         }
 
+        // ENHANCED WEBSOCKET CONNECTION with RunPod support
         async function connect() {
             try {
                 updateStatus('Connecting to Voxtral conversational AI...', 'loading');
                 log('Attempting WebSocket connection...');
                 console.log('[Voxtral VAD] WebSocket URL detected:', wsUrl);
                 
+                // Validate WebSocket URL format for RunPod
+                if (wsUrl.includes('proxy.runpod.net') && !wsUrl.endsWith('/ws')) {
+                    console.warn('[Voxtral VAD] RunPod WebSocket URL missing /ws endpoint, fixing...');
+                    wsUrl = wsUrl.replace(/\/$/, '') + '/ws';
+                    console.log('[Voxtral VAD] Fixed WebSocket URL:', wsUrl);
+                }
+                
                 ws = new WebSocket(wsUrl);
                 
                 ws.onopen = (event) => {
-                    console.log('[Voxtral VAD] Connected! Ready to start conversation.');
-                    updateStatus('Connected! Ready to start conversation.', 'success');
+                    console.log('[Voxtral VAD] ✅ Connected! Ready to start conversation.');
+                    updateStatus('✅ Connected! Ready to start conversation.', 'success');
+                    
                     // Safe status update
                     try {
                         updateConnectionStatus(true);
@@ -1028,6 +1106,18 @@ async def home(request: Request):
                     if (connectBtn) connectBtn.disabled = true;
                     if (streamBtn) streamBtn.disabled = false;
                     
+                    // Send connection confirmation
+                    if (ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({
+                            type: 'connection_test',
+                            timestamp: Date.now(),
+                            client_info: {
+                                userAgent: navigator.userAgent,
+                                url: window.location.href
+                            }
+                        }));
+                    }
+                    
                     log('WebSocket connection established');
                 };
                 
@@ -1037,19 +1127,28 @@ async def home(request: Request):
                         console.log('[Voxtral VAD] Received message type:', data.type);
                         
                         if (data.type === 'connection') {
-                            console.log('[Voxtral VAD] Connected to Voxtral conversational AI with VAD');
+                            console.log('[Voxtral VAD] ✅ Connected to Voxtral conversational AI with VAD');
                         }
                         
                         handleWebSocketMessage(data);
                         
                     } catch (error) {
                         console.error('[Voxtral VAD] Error parsing message:', error);
+                        console.error('[Voxtral VAD] Raw message data:', event.data);
                     }
                 };
                 
                 ws.onclose = (event) => {
-                    console.log(`[Voxtral VAD] WebSocket closed. Code: ${event.code}`);
-                    updateStatus(`Disconnected from server (Code: ${event.code})`, 'error');
+                    console.log(`[Voxtral VAD] WebSocket closed. Code: ${event.code}, Reason: ${event.reason}`);
+                    
+                    let statusMessage = `Disconnected from server (Code: ${event.code})`;
+                    if (event.code === 1006) {
+                        statusMessage = 'Connection lost - attempting to reconnect...';
+                    } else if (event.code === 403) {
+                        statusMessage = 'Connection forbidden - check server configuration';
+                    }
+                    
+                    updateStatus(statusMessage, 'error');
                     updateConnectionStatus(false);
                     updateVadStatus('waiting');
                     
@@ -1063,22 +1162,27 @@ async def home(request: Request):
                     
                     log(`WebSocket connection closed: ${event.code}`);
                     
-                    // Auto-reconnect for abnormal closures
+                    // Auto-reconnect for abnormal closures with exponential backoff
                     if (event.code !== 1000) {
+                        const reconnectDelay = Math.min(5000 * Math.pow(2, (window.reconnectAttempts || 0)), 30000);
+                        window.reconnectAttempts = (window.reconnectAttempts || 0) + 1;
+                        
                         setTimeout(() => {
-                            console.log('[Voxtral VAD] Attempting to reconnect...');
+                            console.log(`[Voxtral VAD] Attempting to reconnect... (attempt ${window.reconnectAttempts})`);
                             connect();
-                        }, 3000);
+                        }, reconnectDelay);
+                    } else {
+                        // Reset reconnect attempts on normal closure
+                        window.reconnectAttempts = 0;
                     }
                 };
                 
                 ws.onerror = (error) => {
                     console.error('[Voxtral VAD] WebSocket error:', error);
-                    updateStatus('Connection error - check console for details', 'error');
+                    updateStatus('❌ Connection error - check server status', 'error');
                     updateConnectionStatus(false);
                     updateVadStatus('waiting');
                     log('WebSocket error occurred');
-                    console.error('WebSocket error:', error);
                 };
                 
             } catch (error) {
@@ -1089,18 +1193,17 @@ async def home(request: Request):
             }
         }
 
-        // CRITICAL FIX: Safe startConversation function with proper button handling
+        // CRITICAL FIX: Safe startConversation function with Chrome autoplay policy handling
         async function startConversation() {
-            console.log('[Voxtral Audio Fix] Starting conversation with fixed button handling...');
+            console.log('[Voxtral Audio Fix] Starting conversation with Chrome autoplay policy support...');
             
             try {
-                // Initialize audio manager if not ready
-                if (!window.voxtralAudio.isInitialized) {
-                    console.log('[Voxtral Audio Fix] Initializing audio context...');
-                    const success = await window.voxtralAudio.initializeAudioContext();
-                    if (!success) {
-                        throw new Error('Failed to initialize audio context');
-                    }
+                // CHROME AUTOPLAY POLICY FIX: Initialize audio with user gesture
+                console.log('[Voxtral Audio Fix] Ensuring audio is ready with user gesture...');
+                const audioReady = await window.voxtralAudio.initializeWithUserGesture();
+                
+                if (!audioReady) {
+                    throw new Error('Failed to initialize audio - this may be due to browser autoplay policy. Please try clicking the button again.');
                 }
                 
                 // Safe button state management
@@ -1127,18 +1230,30 @@ async def home(request: Request):
                     console.log('[Voxtral Audio Fix] Stop button enabled');
                 }
                 
+                // Update status to show audio is ready
+                updateStatus('🎤 Audio initialized - Starting conversation...', 'success');
+                
                 // Continue with existing conversation logic
                 await initializeConversation();
                 
+                console.log('[Voxtral Audio Fix] ✅ Conversation started successfully with audio support!');
+                
             } catch (error) {
                 console.error('[Voxtral Audio Fix] Conversation start failed:', error);
-                updateStatus('Failed to start conversation: ' + error.message, 'error');
-                // Graceful fallback - try to start anyway
-                try {
-                    await initializeConversation();
-                } catch (fallbackError) {
-                    console.error('[Voxtral Audio Fix] Fallback initialization also failed:', fallbackError);
+                
+                // Show user-friendly error message
+                let errorMessage = 'Failed to start conversation: ' + error.message;
+                if (error.message.includes('autoplay')) {
+                    errorMessage = '🔊 Please click the Start button to enable audio and begin conversation.';
                 }
+                
+                updateStatus(errorMessage, 'error');
+                
+                // Reset button states on error
+                const startButton = document.getElementById('streamBtn') || document.getElementById('startButton');
+                const stopButton = document.getElementById('stopBtn') || document.getElementById('stopButton');
+                if (startButton) startButton.disabled = false;
+                if (stopButton) stopButton.disabled = true;
             }
         }
 
@@ -2186,23 +2301,15 @@ async def home(request: Request):
             log('[EMOJI] User interruption handled - cleared streaming state');
         }
 
-        // Safe initialization function
+        // Safe initialization function with Chrome autoplay policy awareness
         async function initializeVoxtral() {
             console.log('[Voxtral VAD] Mode: Ultra-low latency voice conversation');
             console.log('[Voxtral VAD] Voice settings: Using optimized defaults (Hindi female, normal speed)');
             
-            // CRITICAL AUDIO FIX: Initialize audio manager first
-            try {
-                console.log('[Voxtral Audio Fix] Initializing audio manager...');
-                const audioSuccess = await window.voxtralAudio.initializeAudioContext();
-                if (audioSuccess) {
-                    console.log('[Voxtral Audio Fix] ✅ Audio manager initialized successfully');
-                } else {
-                    console.warn('[Voxtral Audio Fix] ⚠️ Audio manager initialization failed, will retry on first use');
-                }
-            } catch (error) {
-                console.error('[Voxtral Audio Fix] Audio manager initialization error:', error);
-            }
+            // CHROME AUTOPLAY POLICY: Don't initialize audio context immediately
+            // Audio will be initialized on first user interaction (button click)
+            console.log('[Voxtral Audio Fix] Audio manager ready - will initialize on user interaction');
+            console.log('[Voxtral Audio Fix] Chrome autoplay policy: Audio context will be created when user clicks Start');
             
             // Initialize environment detection
             try {
@@ -2220,10 +2327,18 @@ async def home(request: Request):
                 console.error('[Voxtral VAD] Voice settings initialization failed:', error);
             }
             
+            // Add click listener to hide welcome message and prepare for audio
+            document.addEventListener('click', function() {
+                const welcomeMessage = document.getElementById('welcomeMessage');
+                if (welcomeMessage && welcomeMessage.style.display !== 'none') {
+                    console.log('[Voxtral Audio Fix] User interaction detected - audio context can now be created');
+                }
+            }, { once: true });
+            
             updateStatus('Ready to connect for conversation with VAD');
             console.log('[Voxtral VAD] Ready to connect for conversation with VAD');
             console.log('[Voxtral VAD] Conversational application with VAD initialized');
-            console.log('[Voxtral Audio Fix] ✅ All audio fixes applied successfully!');
+            console.log('[Voxtral Audio Fix] ✅ All fixes applied - Chrome autoplay policy handled!');
         }
 
         // Initialize when DOM is ready
