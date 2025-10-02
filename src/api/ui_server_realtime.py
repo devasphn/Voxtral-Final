@@ -26,6 +26,7 @@ if project_root not in sys.path:
 
 from src.utils.config import config
 from src.utils.logging_config import logger
+from src.voxtral_conversation_manager import get_conversation_manager, process_with_conversation_context
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -1193,11 +1194,41 @@ async def home(request: Request):
             }
         }
 
-        // CRITICAL FIX: Safe startConversation function with Chrome autoplay policy handling
+        // COMPLETE FIX: Safe startConversation function with system prompt support
         async function startConversation() {
-            console.log('[Voxtral Audio Fix] Starting conversation with Chrome autoplay policy support...');
+            console.log('[Voxtral Conversation] Starting conversation with system prompt support...');
             
             try {
+                // Safe button management with multiple fallback strategies
+                const startButton = document.getElementById('streamBtn') ||
+                                   document.getElementById('startButton') ||
+                                   document.querySelector('.start-button') ||
+                                   document.querySelector('[onclick*="startConversation"]') ||
+                                   document.querySelector('button[class*="start"]');
+                
+                const stopButton = document.getElementById('stopBtn') ||
+                                  document.getElementById('stopButton') ||
+                                  document.querySelector('.stop-button') ||
+                                  document.querySelector('[onclick*="stopConversation"]') ||
+                                  document.querySelector('button[class*="stop"]');
+                
+                // Create buttons if they don't exist
+                if (!startButton || !stopButton) {
+                    console.log('[Voxtral Conversation] Creating missing control buttons...');
+                    createConversationControls();
+                }
+                
+                // Update button states safely
+                if (startButton && typeof startButton.disabled !== 'undefined') {
+                    startButton.disabled = true;
+                    console.log('[Voxtral Conversation] Start button disabled');
+                }
+                
+                if (stopButton && typeof stopButton.disabled !== 'undefined') {
+                    stopButton.disabled = false;
+                    console.log('[Voxtral Conversation] Stop button enabled');
+                }
+                
                 // CHROME AUTOPLAY POLICY FIX: Initialize audio with user gesture
                 console.log('[Voxtral Audio Fix] Ensuring audio is ready with user gesture...');
                 const audioReady = await window.voxtralAudio.initializeWithUserGesture();
@@ -1206,40 +1237,39 @@ async def home(request: Request):
                     throw new Error('Failed to initialize audio - this may be due to browser autoplay policy. Please try clicking the button again.');
                 }
                 
-                // Safe button state management
-                const startButton = document.getElementById('streamBtn') || 
-                                   document.getElementById('startButton') ||
-                                   document.querySelector('.start-button') ||
-                                   document.querySelector('[data-action="start"]');
-                
-                const stopButton = document.getElementById('stopBtn') || 
-                                  document.getElementById('stopButton') ||
-                                  document.querySelector('.stop-button') ||
-                                  document.querySelector('[data-action="stop"]');
-                
-                if (startButton) {
-                    startButton.disabled = true;
-                    console.log('[Voxtral Audio Fix] Start button disabled');
-                } else {
-                    console.warn('[Voxtral Audio Fix] Start button not found - creating fallback controls');
-                    createFallbackControls();
+                // Hide welcome message
+                const welcomeMessage = document.getElementById('welcomeMessage');
+                if (welcomeMessage) {
+                    welcomeMessage.style.display = 'none';
                 }
                 
-                if (stopButton) {
-                    stopButton.disabled = false;
-                    console.log('[Voxtral Audio Fix] Stop button enabled');
-                }
+                // Update status to show conversation starting
+                updateStatus('🎤 Starting conversational mode with system prompt...', 'success');
                 
-                // Update status to show audio is ready
-                updateStatus('🎤 Audio initialized - Starting conversation...', 'success');
+                // Send conversation start message with conversational mode enabled
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({
+                        type: 'start_conversation',
+                        mode: 'conversational',
+                        config: {
+                            language: 'en',
+                            voice: 'hf_alpha',
+                            streaming: true,
+                            conversation_mode: true,  // Enable system prompt
+                            sample_rate: 16000
+                        }
+                    }));
+                    
+                    console.log('[Voxtral Conversation] ✅ Sent conversation start with system prompt enabled');
+                }
                 
                 // Continue with existing conversation logic
                 await initializeConversation();
                 
-                console.log('[Voxtral Audio Fix] ✅ Conversation started successfully with audio support!');
+                console.log('[Voxtral Conversation] ✅ Conversation started successfully with system prompt!');
                 
             } catch (error) {
-                console.error('[Voxtral Audio Fix] Conversation start failed:', error);
+                console.error('[Voxtral Conversation] ❌ Conversation start failed:', error);
                 
                 // Show user-friendly error message
                 let errorMessage = 'Failed to start conversation: ' + error.message;
@@ -1248,6 +1278,7 @@ async def home(request: Request):
                 }
                 
                 updateStatus(errorMessage, 'error');
+                showUserMessage(errorMessage);
                 
                 // Reset button states on error
                 const startButton = document.getElementById('streamBtn') || document.getElementById('startButton');
@@ -1255,6 +1286,99 @@ async def home(request: Request):
                 if (startButton) startButton.disabled = false;
                 if (stopButton) stopButton.disabled = true;
             }
+        }
+
+        function createConversationControls() {
+            // Create control container
+            const controlsContainer = document.createElement('div');
+            controlsContainer.id = 'voxtralControls';
+            controlsContainer.style.cssText = `
+                position: fixed;
+                bottom: 20px;
+                right: 20px;
+                display: flex;
+                gap: 10px;
+                z-index: 10000;
+                background: rgba(0,0,0,0.8);
+                padding: 15px;
+                border-radius: 10px;
+                backdrop-filter: blur(10px);
+            `;
+            
+            // Create start button
+            const startBtn = document.createElement('button');
+            startBtn.id = 'startButton';
+            startBtn.innerHTML = '🎤 Start Conversation';
+            startBtn.onclick = startConversation;
+            startBtn.style.cssText = `
+                background: #4CAF50;
+                color: white;
+                border: none;
+                padding: 12px 20px;
+                border-radius: 6px;
+                cursor: pointer;
+                font-size: 14px;
+                font-weight: bold;
+            `;
+            
+            // Create stop button
+            const stopBtn = document.createElement('button');
+            stopBtn.id = 'stopButton';
+            stopBtn.innerHTML = '⏹️ Stop';
+            stopBtn.onclick = stopConversation;
+            stopBtn.disabled = true;
+            stopBtn.style.cssText = `
+                background: #f44336;
+                color: white;
+                border: none;
+                padding: 12px 20px;
+                border-radius: 6px;
+                cursor: pointer;
+                font-size: 14px;
+                font-weight: bold;
+                opacity: 0.5;
+            `;
+            
+            // Add to container and page
+            controlsContainer.appendChild(startBtn);
+            controlsContainer.appendChild(stopBtn);
+            document.body.appendChild(controlsContainer);
+            
+            console.log('[Voxtral Conversation] ✅ Created fallback conversation controls');
+        }
+
+        function showUserMessage(message) {
+            // Create or update user notification
+            let notification = document.getElementById('userNotification');
+            if (!notification) {
+                notification = document.createElement('div');
+                notification.id = 'userNotification';
+                notification.style.cssText = `
+                    position: fixed;
+                    top: 50%;
+                    left: 50%;
+                    transform: translate(-50%, -50%);
+                    background: rgba(255, 69, 0, 0.9);
+                    color: white;
+                    padding: 20px;
+                    border-radius: 10px;
+                    z-index: 10001;
+                    font-weight: bold;
+                    text-align: center;
+                    max-width: 400px;
+                    box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+                `;
+                document.body.appendChild(notification);
+            }
+            
+            notification.textContent = message;
+            
+            // Auto-hide after 5 seconds
+            setTimeout(() => {
+                if (notification.parentNode) {
+                    notification.parentNode.removeChild(notification);
+                }
+            }, 5000);
         }
 
         function createFallbackControls() {
@@ -1415,6 +1539,30 @@ async def home(request: Request):
                     
                 case 'info':
                     updateStatus(data.message, 'loading');
+                    break;
+
+                case 'conversation_started':
+                    // Handle conversation start confirmation
+                    console.log('[Voxtral Conversation] ✅ Conversation started with system prompt');
+                    updateStatus('🎙️ Conversational mode active - speak naturally!', 'success');
+                    
+                    if (data.system_prompt_enabled) {
+                        console.log('[Voxtral Conversation] ✅ System prompt enabled for natural responses');
+                        showUserMessage('✅ System prompt active - expect natural conversations!');
+                    }
+                    break;
+
+                case 'conversational_response':
+                    // Handle conversational response with system prompt
+                    console.log(`[Voxtral Conversation] Received conversational response: "${data.text}"`);
+                    updateStatus('🤖 AI responded naturally', 'success');
+                    
+                    // Display the response
+                    displayConversationMessage({
+                        text: data.text,
+                        chunk_id: data.chunk_id,
+                        mode: 'conversational'
+                    });
                     break;
 
                 case 'audio_response':
@@ -2485,6 +2633,121 @@ async def health_check():
             "error": str(e)
         }, status_code=500)
 
+# CONVERSATION HANDLER: Process audio with system prompt
+async def handle_conversational_audio_chunk(websocket: WebSocket, message: dict, client_id: str):
+    """Handle audio chunk with conversational context and system prompt"""
+    try:
+        chunk_id = message.get("chunk_id", f"chunk_{int(time.time() * 1000)}")
+        audio_data = message.get("audio_data")
+        
+        if not audio_data:
+            streaming_logger.warning(f"[CONVERSATION] No audio data in chunk {chunk_id}")
+            return
+        
+        streaming_logger.info(f"[CONVERSATION] Processing conversational audio chunk {chunk_id}")
+        
+        # Get unified model manager
+        unified_manager = get_unified_manager()
+        
+        if not unified_manager.is_initialized:
+            await websocket.send_text(json.dumps({
+                "type": "error",
+                "message": "Models not initialized yet"
+            }))
+            return
+        
+        # Get Voxtral model
+        voxtral_model = await unified_manager.get_voxtral_model()
+        
+        # Process with conversation context and system prompt
+        response = await process_with_conversation_context(
+            audio_data=audio_data,
+            processor=voxtral_model.processor,
+            model=voxtral_model.model
+        )
+        
+        streaming_logger.info(f"[CONVERSATION] Generated conversational response: '{response[:100]}...'")
+        
+        # Send conversational response
+        await websocket.send_text(json.dumps({
+            "type": "conversational_response",
+            "text": response,
+            "chunk_id": chunk_id,
+            "mode": "conversational"
+        }))
+        
+        # Generate TTS for the response
+        await generate_tts_for_response(websocket, response, chunk_id, client_id)
+        
+    except Exception as e:
+        streaming_logger.error(f"[CONVERSATION] Error processing conversational audio chunk: {e}")
+        await websocket.send_text(json.dumps({
+            "type": "error",
+            "message": f"Conversational processing failed: {str(e)}"
+        }))
+
+async def generate_tts_for_response(websocket: WebSocket, response_text: str, chunk_id: str, client_id: str):
+    """Generate TTS audio for conversational response"""
+    try:
+        streaming_logger.info(f"[TTS] Generating audio for response: '{response_text[:50]}...'")
+        
+        # Get unified model manager
+        unified_manager = get_unified_manager()
+        kokoro_model = await unified_manager.get_kokoro_model()
+        
+        # Generate TTS audio
+        result = await kokoro_model.synthesize_speech(
+            text=response_text,
+            voice="hf_alpha"  # Hindi female voice
+        )
+        
+        if result.get("success", False):
+            audio_data = result["audio_data"]
+            sample_rate = result.get("sample_rate", 24000)
+            
+            # Convert to base64 for transmission
+            import base64
+            audio_b64 = base64.b64encode(audio_data).decode('utf-8')
+            
+            # Send audio response
+            await websocket.send_text(json.dumps({
+                "type": "audio_response",
+                "audio_data": audio_b64,
+                "chunk_id": chunk_id,
+                "voice": "hf_alpha",
+                "format": "wav",
+                "metadata": {
+                    "sample_rate": sample_rate,
+                    "duration_ms": len(audio_data) / sample_rate * 1000
+                }
+            }))
+            
+            streaming_logger.info(f"[TTS] Audio response sent for chunk {chunk_id}")
+        else:
+            streaming_logger.error(f"[TTS] Failed to generate audio: {result.get('error', 'Unknown error')}")
+            
+    except Exception as e:
+        streaming_logger.error(f"[TTS] Error generating TTS for response: {e}")
+
+async def handle_session_reset(websocket: WebSocket, client_id: str):
+    """Handle session reset to clear conversation history"""
+    try:
+        streaming_logger.info(f"[CONVERSATION] Resetting session for client {client_id}")
+        
+        # Clear conversation history
+        conversation_manager = get_conversation_manager()
+        conversation_manager.clear_history()
+        
+        await websocket.send_text(json.dumps({
+            "type": "session_reset_complete",
+            "message": "Conversation history cleared - ready for new conversation"
+        }))
+        
+        streaming_logger.info(f"[CONVERSATION] Session reset complete for {client_id}")
+        
+    except Exception as e:
+        streaming_logger.error(f"[CONVERSATION] Error resetting session: {e}")
+
 # WebSocket endpoint for CONVERSATIONAL streaming with VAD
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
@@ -2542,6 +2805,37 @@ async def websocket_endpoint(websocket: WebSocket):
 
                 elif msg_type == "text_input":
                     await handle_text_input_direct(websocket, message, client_id)
+
+                elif msg_type == "start_conversation":
+                    # Handle conversation start with system prompt initialization
+                    conversation_manager = get_conversation_manager()
+                    conversation_manager.clear_history()  # Fresh start
+                    
+                    config_data = message.get('config', {})
+                    if config_data.get('conversation_mode'):
+                        streaming_logger.info("[CONVERSATION] ✅ Conversational mode enabled with system prompt")
+                        
+                        await websocket.send_text(json.dumps({
+                            'type': 'conversation_started',
+                            'message': 'Conversational mode active - ready for natural conversation!',
+                            'system_prompt_enabled': True
+                        }))
+                    else:
+                        streaming_logger.info("[CONVERSATION] Standard mode enabled")
+                        
+                        await websocket.send_text(json.dumps({
+                            'type': 'conversation_started',
+                            'message': 'Voice conversation started'
+                        }))
+
+                elif msg_type == "stop_conversation":
+                    # Handle conversation stop
+                    streaming_logger.info(f"[CONVERSATION] Stopping conversation for {client_id}")
+                    
+                    await websocket.send_text(json.dumps({
+                        'type': 'conversation_stopped',
+                        'message': 'Conversation ended'
+                    }))
 
                 elif msg_type == "reset_session":
                     # FIXED: Handle session reset for clean state between interactions
