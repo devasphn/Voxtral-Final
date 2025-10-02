@@ -395,6 +395,140 @@ async def home(request: Request):
     </div>
     
     <script>
+        // CRITICAL AUDIO FIX: VoxtralAudioManager for proper sample rate handling
+        class VoxtralAudioManager {
+            constructor() {
+                // Standardize all sample rates to 16kHz to match Kokoro backend
+                this.SAMPLE_RATE = 16000;
+                this.audioContext = null;
+                this.audioQueue = [];
+                this.isPlaying = false;
+                this.isInitialized = false;
+                console.log('[Voxtral Audio Fix] Audio manager initialized');
+            }
+            
+            async initializeAudioContext() {
+                try {
+                    // Create audio context with explicit sample rate
+                    this.audioContext = new (window.AudioContext || window.webkitAudioContext)({
+                        sampleRate: this.SAMPLE_RATE
+                    });
+                    
+                    console.log(`[Voxtral Audio Fix] Audio context created with sample rate: ${this.audioContext.sampleRate}Hz`);
+                    
+                    // Resume context if suspended (browser autoplay policy)
+                    if (this.audioContext.state === 'suspended') {
+                        await this.audioContext.resume();
+                        console.log('[Voxtral Audio Fix] Audio context resumed');
+                    }
+                    
+                    this.isInitialized = true;
+                    return true;
+                } catch (error) {
+                    console.error('[Voxtral Audio Fix] Audio context initialization failed:', error);
+                    return false;
+                }
+            }
+            
+            async processAudioChunk(base64Audio, chunkId) {
+                try {
+                    console.log(`[Voxtral Audio Fix] Processing audio chunk ${chunkId} (${base64Audio.length} chars)`);
+                    
+                    // Convert base64 to ArrayBuffer
+                    const binaryString = atob(base64Audio);
+                    const audioBuffer = new ArrayBuffer(binaryString.length);
+                    const uint8Array = new Uint8Array(audioBuffer);
+                    
+                    for (let i = 0; i < binaryString.length; i++) {
+                        uint8Array[i] = binaryString.charCodeAt(i);
+                    }
+                    
+                    // Create WAV header for 16kHz PCM audio
+                    const wavBuffer = this.createWAVHeader(audioBuffer);
+                    
+                    // Decode audio with proper sample rate handling
+                    const decodedAudio = await this.audioContext.decodeAudioData(wavBuffer);
+                    
+                    console.log(`[Voxtral Audio Fix] Audio decoded - Duration: ${decodedAudio.duration.toFixed(3)}s, Sample Rate: ${decodedAudio.sampleRate}Hz`);
+                    
+                    // Play immediately
+                    await this.playAudio(decodedAudio, chunkId);
+                    
+                } catch (error) {
+                    console.error(`[Voxtral Audio Fix] Audio processing failed for chunk ${chunkId}:`, error);
+                }
+            }
+            
+            createWAVHeader(audioData) {
+                const audioBytes = audioData.byteLength;
+                const buffer = new ArrayBuffer(44 + audioBytes);
+                const view = new DataView(buffer);
+                
+                // WAV header for 16kHz, 16-bit, mono PCM
+                const writeString = (offset, string) => {
+                    for (let i = 0; i < string.length; i++) {
+                        view.setUint8(offset + i, string.charCodeAt(i));
+                    }
+                };
+                
+                writeString(0, 'RIFF');
+                view.setUint32(4, 36 + audioBytes, true);
+                writeString(8, 'WAVE');
+                writeString(12, 'fmt ');
+                view.setUint32(16, 16, true);                    // Subchunk1Size
+                view.setUint16(20, 1, true);                     // AudioFormat (PCM)
+                view.setUint16(22, 1, true);                     // NumChannels (mono)
+                view.setUint32(24, this.SAMPLE_RATE, true);     // SampleRate
+                view.setUint32(28, this.SAMPLE_RATE * 2, true); // ByteRate
+                view.setUint16(32, 2, true);                     // BlockAlign
+                view.setUint16(34, 16, true);                    // BitsPerSample
+                writeString(36, 'data');
+                view.setUint32(40, audioBytes, true);
+                
+                // Copy audio data
+                const audioView = new Uint8Array(audioData);
+                const headerView = new Uint8Array(buffer);
+                headerView.set(audioView, 44);
+                
+                console.log(`[Voxtral Audio Fix] Created WAV header: ${buffer.byteLength} bytes total (${audioBytes} bytes audio + 44 bytes header)`);
+                
+                return buffer;
+            }
+            
+            async playAudio(audioBuffer, chunkId) {
+                try {
+                    // Create audio source
+                    const source = this.audioContext.createBufferSource();
+                    source.buffer = audioBuffer;
+                    
+                    // Create gain node for volume control
+                    const gainNode = this.audioContext.createGain();
+                    gainNode.gain.value = 1.0;
+                    
+                    // Connect audio graph
+                    source.connect(gainNode);
+                    gainNode.connect(this.audioContext.destination);
+                    
+                    // Play audio
+                    const startTime = this.audioContext.currentTime;
+                    source.start(startTime);
+                    
+                    console.log(`[Voxtral Audio Fix] Started playing audio chunk ${chunkId} - Duration: ${audioBuffer.duration.toFixed(3)}s`);
+                    
+                    // Log completion
+                    source.onended = () => {
+                        console.log(`[Voxtral Audio Fix] Finished playing audio chunk ${chunkId}`);
+                    };
+                    
+                } catch (error) {
+                    console.error(`[Voxtral Audio Fix] Audio playback failed for chunk ${chunkId}:`, error);
+                }
+            }
+        }
+
+        // Initialize global audio manager
+        window.voxtralAudio = new VoxtralAudioManager();
+
         let ws = null;
         let audioContext = null;
         let mediaStream = null;
@@ -954,6 +1088,189 @@ async def home(request: Request):
                 log('Connection failed: ' + error.message);
             }
         }
+
+        // CRITICAL FIX: Safe startConversation function with proper button handling
+        async function startConversation() {
+            console.log('[Voxtral Audio Fix] Starting conversation with fixed button handling...');
+            
+            try {
+                // Initialize audio manager if not ready
+                if (!window.voxtralAudio.isInitialized) {
+                    console.log('[Voxtral Audio Fix] Initializing audio context...');
+                    const success = await window.voxtralAudio.initializeAudioContext();
+                    if (!success) {
+                        throw new Error('Failed to initialize audio context');
+                    }
+                }
+                
+                // Safe button state management
+                const startButton = document.getElementById('streamBtn') || 
+                                   document.getElementById('startButton') ||
+                                   document.querySelector('.start-button') ||
+                                   document.querySelector('[data-action="start"]');
+                
+                const stopButton = document.getElementById('stopBtn') || 
+                                  document.getElementById('stopButton') ||
+                                  document.querySelector('.stop-button') ||
+                                  document.querySelector('[data-action="stop"]');
+                
+                if (startButton) {
+                    startButton.disabled = true;
+                    console.log('[Voxtral Audio Fix] Start button disabled');
+                } else {
+                    console.warn('[Voxtral Audio Fix] Start button not found - creating fallback controls');
+                    createFallbackControls();
+                }
+                
+                if (stopButton) {
+                    stopButton.disabled = false;
+                    console.log('[Voxtral Audio Fix] Stop button enabled');
+                }
+                
+                // Continue with existing conversation logic
+                await initializeConversation();
+                
+            } catch (error) {
+                console.error('[Voxtral Audio Fix] Conversation start failed:', error);
+                updateStatus('Failed to start conversation: ' + error.message, 'error');
+                // Graceful fallback - try to start anyway
+                try {
+                    await initializeConversation();
+                } catch (fallbackError) {
+                    console.error('[Voxtral Audio Fix] Fallback initialization also failed:', fallbackError);
+                }
+            }
+        }
+
+        function createFallbackControls() {
+            const controlsDiv = document.createElement('div');
+            controlsDiv.id = 'voxtralControls';
+            controlsDiv.innerHTML = `
+                <button id="startButton" onclick="startConversation()" disabled>🎤 Start</button>
+                <button id="stopButton" onclick="stopConversation()">⏹️ Stop</button>
+            `;
+            controlsDiv.style.cssText = `
+                position: fixed;
+                bottom: 20px;
+                right: 20px;
+                z-index: 10000;
+                background: rgba(0,0,0,0.8);
+                padding: 10px;
+                border-radius: 8px;
+                color: white;
+            `;
+            document.body.appendChild(controlsDiv);
+            console.log('[Voxtral Audio Fix] Created fallback controls');
+        }
+
+        async function initializeConversation() {
+            console.log('[Voxtral Audio Fix] Initializing conversation...');
+            
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                throw new Error('WebSocket not connected');
+            }
+
+            // Request microphone access
+            try {
+                mediaStream = await navigator.mediaDevices.getUserMedia({
+                    audio: {
+                        sampleRate: 16000,
+                        channelCount: 1,
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true
+                    }
+                });
+
+                // Create audio context if not exists
+                if (!audioContext) {
+                    audioContext = new (window.AudioContext || window.webkitAudioContext)({
+                        sampleRate: 16000
+                    });
+                }
+
+                if (audioContext.state === 'suspended') {
+                    await audioContext.resume();
+                }
+
+                // Set up audio processing
+                const source = audioContext.createMediaStreamSource(mediaStream);
+                const processor = audioContext.createScriptProcessor(2048, 1, 1);
+
+                processor.onaudioprocess = (event) => {
+                    if (!isStreaming) return;
+
+                    const inputData = event.inputBuffer.getChannelData(0);
+                    updateVolumeMeter(inputData);
+
+                    // Add to continuous buffer
+                    continuousAudioBuffer.push(...inputData);
+
+                    // Detect speech in current chunk
+                    const hasSpeech = detectSpeechInBuffer(inputData);
+                    const now = Date.now();
+
+                    if (hasSpeech) {
+                        if (!isSpeechActive) {
+                            // Speech started
+                            speechStartTime = now;
+                            isSpeechActive = true;
+                            silenceStartTime = null;
+                            log('Speech detected - starting continuous capture');
+                            updateVadStatus('speech');
+                        }
+                        lastSpeechTime = now;
+                    } else {
+                        if (isSpeechActive && !silenceStartTime) {
+                            // Silence started after speech
+                            silenceStartTime = now;
+                            updateVadStatus('silence');
+                        }
+                    }
+
+                    // Check if we should process accumulated speech
+                    if (isSpeechActive && silenceStartTime &&
+                        (now - silenceStartTime >= END_OF_SPEECH_SILENCE) &&
+                        (lastSpeechTime - speechStartTime >= MIN_SPEECH_DURATION)) {
+
+                        // Process the complete utterance
+                        log(`Processing complete utterance: ${continuousAudioBuffer.length} samples, ${(lastSpeechTime - speechStartTime)}ms duration`);
+                        sendCompleteUtterance(new Float32Array(continuousAudioBuffer));
+
+                        // Reset for next utterance
+                        continuousAudioBuffer = [];
+                        isSpeechActive = false;
+                        speechStartTime = null;
+                        lastSpeechTime = null;
+                        silenceStartTime = null;
+                        pendingResponse = true;
+                    }
+
+                    // Prevent buffer from growing too large
+                    const maxBufferSize = SAMPLE_RATE * 5;
+                    if (continuousAudioBuffer.length > maxBufferSize) {
+                        continuousAudioBuffer = continuousAudioBuffer.slice(-maxBufferSize);
+                        log('Audio buffer trimmed to prevent memory overflow (5s max)');
+                    }
+                };
+                
+                source.connect(processor);
+                processor.connect(audioContext.destination);
+                audioWorkletNode = processor;
+                
+                isStreaming = true;
+                streamStartTime = Date.now();
+                
+                updateConnectionStatus(true, true);
+                updateStatus('[VAD] Conversation active with VAD - speak naturally!', 'success');
+                updateVadStatus('silence');
+                
+                log('Conversational streaming with VAD started successfully');
+                
+            } catch (error) {
+                throw new Error('Failed to initialize audio: ' + error.message);
+            }
+        }
         
         function handleWebSocketMessage(data) {
             log(`Received message type: ${data.type}`);
@@ -986,8 +1303,20 @@ async def home(request: Request):
                     break;
 
                 case 'audio_response':
-                    // Handle TTS audio response
-                    handleAudioResponse(data);
+                    // CRITICAL AUDIO FIX: Use new audio manager for proper sample rate handling
+                    console.log(`[Voxtral Audio Fix] Received TTS audio response for chunk ${data.chunk_id || 'unknown'} (${data.audio_data ? data.audio_data.length : 0} chars)`);
+                    
+                    if (window.voxtralAudio && window.voxtralAudio.isInitialized && data.audio_data) {
+                        // Use new audio manager with proper sample rate handling
+                        window.voxtralAudio.processAudioChunk(data.audio_data, data.chunk_id || 'unknown');
+                    } else if (data.audio_data) {
+                        console.warn('[Voxtral Audio Fix] Audio manager not initialized, falling back to original handler');
+                        // Fallback to original handler
+                        handleAudioResponse(data);
+                    } else {
+                        console.error('[Voxtral Audio Fix] No audio data in response');
+                    }
+                    break;
                 // Speech-to-Speech message types
                 case 'processing':
                     if (speechToSpeechActive) {
@@ -1012,13 +1341,22 @@ async def home(request: Request):
                 case 'speech_response':
                     if (speechToSpeechActive) {
                         hideProcessingStatus();
-                        showAudioPlayback(
-                            data.audio_data,
-                            data.sample_rate,
-                            data.voice_used,
-                            data.speed_used,
-                            data.audio_duration_s
-                        );
+                        
+                        // CRITICAL AUDIO FIX: Use new audio manager for speech responses too
+                        if (window.voxtralAudio && window.voxtralAudio.isInitialized && data.audio_data) {
+                            console.log(`[Voxtral Audio Fix] Processing speech response with audio manager`);
+                            window.voxtralAudio.processAudioChunk(data.audio_data, `speech_${Date.now()}`);
+                        } else {
+                            // Fallback to original method
+                            showAudioPlayback(
+                                data.audio_data,
+                                data.sample_rate,
+                                data.voice_used,
+                                data.speed_used,
+                                data.audio_duration_s
+                            );
+                        }
+                        
                         log(`Speech response received: ${data.audio_duration_s}s audio`);
                     }
                     break;
@@ -1849,9 +2187,22 @@ async def home(request: Request):
         }
 
         // Safe initialization function
-        function initializeVoxtral() {
+        async function initializeVoxtral() {
             console.log('[Voxtral VAD] Mode: Ultra-low latency voice conversation');
             console.log('[Voxtral VAD] Voice settings: Using optimized defaults (Hindi female, normal speed)');
+            
+            // CRITICAL AUDIO FIX: Initialize audio manager first
+            try {
+                console.log('[Voxtral Audio Fix] Initializing audio manager...');
+                const audioSuccess = await window.voxtralAudio.initializeAudioContext();
+                if (audioSuccess) {
+                    console.log('[Voxtral Audio Fix] ✅ Audio manager initialized successfully');
+                } else {
+                    console.warn('[Voxtral Audio Fix] ⚠️ Audio manager initialization failed, will retry on first use');
+                }
+            } catch (error) {
+                console.error('[Voxtral Audio Fix] Audio manager initialization error:', error);
+            }
             
             // Initialize environment detection
             try {
@@ -1872,21 +2223,30 @@ async def home(request: Request):
             updateStatus('Ready to connect for conversation with VAD');
             console.log('[Voxtral VAD] Ready to connect for conversation with VAD');
             console.log('[Voxtral VAD] Conversational application with VAD initialized');
+            console.log('[Voxtral Audio Fix] ✅ All audio fixes applied successfully!');
         }
 
         // Initialize when DOM is ready
         if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', initializeVoxtral);
+            document.addEventListener('DOMContentLoaded', async () => {
+                await initializeVoxtral();
+                window.voxtralInitialized = true;
+            });
         } else {
             // DOM already loaded
-            setTimeout(initializeVoxtral, 100);
+            setTimeout(async () => {
+                if (!window.voxtralInitialized) {
+                    await initializeVoxtral();
+                    window.voxtralInitialized = true;
+                }
+            }, 100);
         }
         
         // Initialize on page load as fallback
-        window.addEventListener('load', () => {
+        window.addEventListener('load', async () => {
             // Only initialize if not already done
             if (!window.voxtralInitialized) {
-                initializeVoxtral();
+                await initializeVoxtral();
                 window.voxtralInitialized = true;
             }
         });
